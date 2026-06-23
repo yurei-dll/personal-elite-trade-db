@@ -1,0 +1,22 @@
+{
+  "name": "personal-elite-trade-db",
+  "version": "1.0.0",
+  "description": "",
+  "main": "dist/index.js",
+  "scripts": {
+    "test": "tsc"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yurei-dll/personal-elite-trade-db.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/yurei-dll/personal-elite-trade-db/issues"
+  },
+  "homepage": "https://github.com/yurei-dll/personal-elite-trade-db#readme",
+  "dependencies": {
+    "typescript": "^6.0.3"
+  }
+}
