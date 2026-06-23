@@ -64,17 +64,21 @@ Source files live in `src/`. Build output is written to `dist/` and should not b
 ### Roadmap
 
 * [x] Basic CLI entrypoint
+* [ ] Database manager
+  * [ ] Automated setup
+  * [ ] Automatic maintenance
+    * [ ] Track stale data
+  * [ ] Live-patch EDDN ingestion
+    * [ ] Connect to EDDN stream
+    * [ ] Parse commodity market messages
+    * [ ] Store station/system/commodity data
 * [ ] Dashboard
   * [ ] Basic authentication
   * [ ] Database stats page
   * [ ] Server stats page
   * [ ] Route planning
   * [ ] Store preferences in browser
-* [ ] Database manager
-  * [ ] Automated setup
-  * [ ] Automatic maintenance
-  * [ ] Live-patch system
-  
+
 ### Internal structures
 
 #### SQL Table layout
