@@ -7,10 +7,8 @@ export function main(): void {
 
   console.log("personal-elite-trade-db");
   console.log(`Environment: ${config.nodeEnv}`);
-
-  if (!config.databaseUrl) {
-    console.log("DATABASE_URL is not configured yet.");
-  }
+  console.log(`Database: ${config.databaseName}`);
+  console.log(`Database user: ${config.databaseUsername}`);
 }
 
 if (require.main === module) {
