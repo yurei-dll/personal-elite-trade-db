@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { userInfo } from "node:os";
 import { join } from "node:path";
 
@@ -50,7 +50,9 @@ interface ManagedConfigFile {
   readonly [key: string]: unknown;
 }
 
-type ManagedEnvKey = (typeof MANAGED_ENV_KEYS)[number];
+export type ManagedEnvKey = (typeof MANAGED_ENV_KEYS)[number];
+
+export type ManagedEnvUpdates = Partial<Record<ManagedEnvKey, string>>;
 
 export function loadConfig(
   env: NodeJS.ProcessEnv = process.env,
@@ -98,6 +100,41 @@ export function loadConfig(
       readOptionalString(fileConfig.nodeEnv) ??
       DEFAULT_NODE_ENV,
   };
+}
+
+export function saveManagedEnvValues(
+  values: ManagedEnvUpdates,
+  options: ConfigManagerOptions = {},
+): void {
+  const cwd = options.cwd ?? process.cwd();
+  const envPath = options.envPath ?? join(cwd, DEFAULT_ENV_FILE_NAME);
+
+  loadManagedEnvFile(envPath);
+  const envFile = readFileSync(envPath, "utf8");
+  const lines = envFile.split(/\r?\n/u);
+  const remainingValues = new Map(
+    Object.entries(values).filter((entry): entry is [ManagedEnvKey, string] =>
+      isManagedEnvKey(entry[0]),
+    ),
+  );
+  const updatedLines = lines.map((line) => {
+    const key = readEnvLineKey(line);
+
+    if (!key || !remainingValues.has(key)) {
+      return line;
+    }
+
+    const value = remainingValues.get(key);
+    remainingValues.delete(key);
+
+    return `${key}=${escapeEnvValue(value ?? "")}`;
+  });
+
+  for (const [key, value] of remainingValues) {
+    updatedLines.push(`${key}=${escapeEnvValue(value)}`);
+  }
+
+  writeEnvFile(envPath, `${trimTrailingEmptyLines(updatedLines).join("\n")}\n`);
 }
 
 function readOptionalEnv(value: string | undefined): string | undefined {
@@ -305,6 +342,7 @@ function createDefaultEnvFile(): string {
 
 function writeEnvFile(envPath: string, contents: string): void {
   writeFileSync(envPath, contents, { mode: 0o600 });
+  chmodSync(envPath, 0o600);
 }
 
 function parseEnvFile(contents: string): NodeJS.ProcessEnv {
@@ -332,6 +370,46 @@ function parseEnvFile(contents: string): NodeJS.ProcessEnv {
   }
 
   return env;
+}
+
+function readEnvLineKey(line: string): ManagedEnvKey | undefined {
+  const trimmedLine = line.trim();
+
+  if (!trimmedLine || trimmedLine.startsWith("#")) {
+    return undefined;
+  }
+
+  const equalsIndex = trimmedLine.indexOf("=");
+
+  if (equalsIndex === -1) {
+    return undefined;
+  }
+
+  const key = trimmedLine.slice(0, equalsIndex).trim();
+
+  return isManagedEnvKey(key) ? key : undefined;
+}
+
+function isManagedEnvKey(value: string): value is ManagedEnvKey {
+  return MANAGED_ENV_KEYS.includes(value as ManagedEnvKey);
+}
+
+function escapeEnvValue(value: string): string {
+  if (/^[A-Za-z0-9_./:@%+=,-]*$/u.test(value)) {
+    return value;
+  }
+
+  return JSON.stringify(value);
+}
+
+function trimTrailingEmptyLines(lines: string[]): string[] {
+  let endIndex = lines.length;
+
+  while (endIndex > 0 && lines[endIndex - 1] === "") {
+    endIndex -= 1;
+  }
+
+  return lines.slice(0, endIndex);
 }
 
 function unquoteEnvValue(value: string): string {

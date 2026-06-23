@@ -64,6 +64,17 @@ DASHBOARD_PASSWORD_HASH=
 ADMIN_PASSWORD_HASH=
 ```
 
+Set dashboard password hashes from the CLI:
+
+```bash
+npm run dev -- --dashboard-user-password "your dashboard password"
+npm run dev -- --admin-user-password "your admin password"
+```
+
+The CLI clears the terminal before writing the hashes to `.env`, but shell
+arguments can still be captured by shell history or process-list tooling. Use
+these flags on a trusted local machine.
+
 ## Running
 
 Install dependencies:
@@ -110,7 +121,7 @@ Source files live in `src/`. Build output is written to `dist/` and should not b
     * [ ] Store station/system/commodity data
 * [ ] Dashboard
   * [ ] Basic authentication
-    * [ ] Password storage with `bcrypt`
+    * [x] Password storage with `bcrypt`
     * [ ] Credential manager back-end
       * [ ] Read-only access by default
       * [ ] Privilege escalation using separate password for destructive actions.
