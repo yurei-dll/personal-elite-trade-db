@@ -11,6 +11,47 @@ export class DatabaseSetupError extends Error {
   }
 }
 
+export type DatabaseDoctorStatus = "ok" | "warning" | "error";
+
+export interface DatabaseDoctorCheck {
+  readonly name: string;
+  readonly status: DatabaseDoctorStatus;
+  readonly message: string;
+}
+
+export interface DatabaseDoctorAccountInfo {
+  readonly databaseName: string;
+  readonly currentUser: string;
+  readonly sessionUser: string;
+  readonly canConnect: boolean;
+  readonly canCreateInPublicSchema: boolean;
+  readonly canUsePublicSchema: boolean;
+}
+
+export interface DatabaseDoctorServerInfo {
+  readonly currentSchema: string | null;
+  readonly serverAddress: string | null;
+  readonly serverPort: number | null;
+  readonly version: string;
+}
+
+export interface DatabaseDoctorTableInfo {
+  readonly name: string;
+  readonly exists: boolean;
+  readonly estimatedRows: number | null;
+  readonly totalSize: string | null;
+}
+
+export interface DatabaseDoctorReport {
+  readonly account: DatabaseDoctorAccountInfo | undefined;
+  readonly checks: readonly DatabaseDoctorCheck[];
+  readonly connected: boolean;
+  readonly connectionMilliseconds: number | undefined;
+  readonly error: string | undefined;
+  readonly server: DatabaseDoctorServerInfo | undefined;
+  readonly tables: readonly DatabaseDoctorTableInfo[];
+}
+
 export interface DatabaseManager {
   readonly databaseUrl: string;
   readonly isConnected: boolean;
@@ -23,6 +64,7 @@ export interface DatabaseManager {
   transaction<Result>(
     callback: (client: PoolClient) => Promise<Result>,
   ): Promise<Result>;
+  doctor(): Promise<DatabaseDoctorReport>;
   initialize(): Promise<void>;
   verifySetup(): Promise<void>;
 }
@@ -187,6 +229,94 @@ export function createDatabaseManager(config: AppConfig): DatabaseManager {
         client.release();
       }
     },
+    async doctor(): Promise<DatabaseDoctorReport> {
+      const checks: DatabaseDoctorCheck[] = [];
+      const startedAt = process.hrtime.bigint();
+      let client: PoolClient | undefined;
+
+      try {
+        client = await pool.connect();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+
+        return {
+          account: undefined,
+          checks: [
+            {
+              name: "connection",
+              status: "error",
+              message,
+            },
+          ],
+          connected: false,
+          connectionMilliseconds: undefined,
+          error: message,
+          server: undefined,
+          tables: [],
+        };
+      }
+
+      const connectionMilliseconds = Number(
+        (process.hrtime.bigint() - startedAt) / 1_000_000n,
+      );
+
+      try {
+        const account = await readDoctorAccountInfo(client);
+        const server = await readDoctorServerInfo(client);
+        const tables = await readDoctorTableInfo(client);
+        const schemaProblems = await collectDatabaseSetupProblems(client);
+
+        checks.push({
+          name: "connection",
+          status: "ok",
+          message: `Connected in ${connectionMilliseconds} ms.`,
+        });
+        checks.push({
+          name: "account",
+          status:
+            account.canConnect && account.canUsePublicSchema ? "ok" : "warning",
+          message: createAccountCheckMessage(account),
+        });
+        checks.push({
+          name: "tables",
+          status: schemaProblems.length === 0 ? "ok" : "error",
+          message:
+            schemaProblems.length === 0
+              ? "Expected tables, constraints, foreign keys, and indexes are present."
+              : schemaProblems.join("\n"),
+        });
+
+        return {
+          account,
+          checks,
+          connected: true,
+          connectionMilliseconds,
+          error: undefined,
+          server,
+          tables,
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+
+        checks.push({
+          name: "doctor",
+          status: "error",
+          message,
+        });
+
+        return {
+          account: undefined,
+          checks,
+          connected: true,
+          connectionMilliseconds,
+          error: message,
+          server: undefined,
+          tables: [],
+        };
+      } finally {
+        client.release();
+      }
+    },
     async initialize(): Promise<void> {
       const client = await pool.connect();
 
@@ -213,6 +343,126 @@ export function createDatabaseManager(config: AppConfig): DatabaseManager {
       }
     },
   };
+}
+
+interface DoctorAccountRow extends QueryResultRow {
+  readonly database_name: string;
+  readonly current_user: string;
+  readonly session_user: string;
+  readonly can_connect: boolean;
+  readonly can_create_in_public_schema: boolean;
+  readonly can_use_public_schema: boolean;
+}
+
+interface DoctorServerRow extends QueryResultRow {
+  readonly current_schema: string | null;
+  readonly server_address: string | null;
+  readonly server_port: number | null;
+  readonly version: string;
+}
+
+interface DoctorTableRow extends QueryResultRow {
+  readonly table_name: string;
+  readonly estimated_rows: string | number | null;
+  readonly total_size: string | null;
+}
+
+async function readDoctorAccountInfo(
+  client: PoolClient,
+): Promise<DatabaseDoctorAccountInfo> {
+  const result = await client.query<DoctorAccountRow>(`
+    SELECT
+      current_database() AS database_name,
+      current_user,
+      session_user,
+      has_database_privilege(current_database(), 'CONNECT') AS can_connect,
+      has_schema_privilege('public', 'CREATE') AS can_create_in_public_schema,
+      has_schema_privilege('public', 'USAGE') AS can_use_public_schema
+  `);
+  const row = result.rows[0];
+
+  if (!row) {
+    throw new Error("Could not read database account details.");
+  }
+
+  return {
+    databaseName: row.database_name,
+    currentUser: row.current_user,
+    sessionUser: row.session_user,
+    canConnect: row.can_connect,
+    canCreateInPublicSchema: row.can_create_in_public_schema,
+    canUsePublicSchema: row.can_use_public_schema,
+  };
+}
+
+async function readDoctorServerInfo(
+  client: PoolClient,
+): Promise<DatabaseDoctorServerInfo> {
+  const result = await client.query<DoctorServerRow>(`
+    SELECT
+      current_schema() AS current_schema,
+      inet_server_addr()::text AS server_address,
+      inet_server_port() AS server_port,
+      version()
+  `);
+  const row = result.rows[0];
+
+  if (!row) {
+    throw new Error("Could not read database server details.");
+  }
+
+  return {
+    currentSchema: row.current_schema,
+    serverAddress: row.server_address,
+    serverPort: row.server_port,
+    version: row.version,
+  };
+}
+
+async function readDoctorTableInfo(
+  client: PoolClient,
+): Promise<DatabaseDoctorTableInfo[]> {
+  const result = await client.query<DoctorTableRow>(
+    `
+      SELECT
+        c.relname AS table_name,
+        c.reltuples::bigint AS estimated_rows,
+        pg_size_pretty(pg_total_relation_size(c.oid)) AS total_size
+      FROM pg_class c
+      JOIN pg_namespace n
+        ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public'
+        AND c.relkind = 'r'
+        AND c.relname = ANY($1::text[])
+    `,
+    [EXPECTED_TABLE_NAMES],
+  );
+  const rowsByTable = new Map(result.rows.map((row) => [row.table_name, row]));
+
+  return EXPECTED_TABLE_NAMES.map((tableName) => {
+    const row = rowsByTable.get(tableName);
+    const estimatedRows =
+      row?.estimated_rows === undefined || row.estimated_rows === null
+        ? null
+        : Number(row.estimated_rows);
+
+    return {
+      name: tableName,
+      exists: row !== undefined,
+      estimatedRows,
+      totalSize: row?.total_size ?? null,
+    };
+  });
+}
+
+function createAccountCheckMessage(account: DatabaseDoctorAccountInfo): string {
+  const privileges = [
+    account.canConnect ? "CONNECT ok" : "CONNECT missing",
+    account.canUsePublicSchema ? "public USAGE ok" : "public USAGE missing",
+    account.canCreateInPublicSchema ? "public CREATE ok" : "public CREATE missing",
+  ];
+
+  return `${account.currentUser} on ${account.databaseName}; ${privileges.join(", ")}.`;
 }
 
 async function initializeDatabaseSetup(client: PoolClient): Promise<void> {
@@ -304,6 +554,14 @@ interface IndexCatalogRow extends QueryResultRow {
 }
 
 async function verifyDatabaseSetup(client: PoolClient): Promise<void> {
+  const problems = await collectDatabaseSetupProblems(client);
+
+  if (problems.length > 0) {
+    throw new DatabaseSetupError(problems);
+  }
+}
+
+async function collectDatabaseSetupProblems(client: PoolClient): Promise<string[]> {
   const columnResult = await client.query<ColumnCatalogRow>(
     `
       SELECT table_name, column_name, data_type, is_nullable
@@ -375,9 +633,7 @@ async function verifyDatabaseSetup(client: PoolClient): Promise<void> {
     ...verifyIndexes(indexResult.rows, existingTableNames),
   ];
 
-  if (problems.length > 0) {
-    throw new DatabaseSetupError(problems);
-  }
+  return problems;
 }
 
 function verifyColumns(rows: readonly ColumnCatalogRow[]): string[] {

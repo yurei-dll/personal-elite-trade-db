@@ -89,6 +89,18 @@ Run the TypeScript source directly during development:
 npm run dev
 ```
 
+Initialize the database schema:
+
+```bash
+npm run dev -- --init
+```
+
+Check the database connection, account privileges, schema, and debug info:
+
+```bash
+npm run dev -- --doctor
+```
+
 Build and run the compiled JavaScript:
 
 ```bash

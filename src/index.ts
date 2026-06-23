@@ -2,6 +2,7 @@
 
 import type { ManagedEnvUpdates } from "./config";
 import { loadConfig, saveManagedEnvValues } from "./config";
+import type { DatabaseDoctorReport, DatabaseDoctorStatus } from "./database";
 import { createDatabaseManager } from "./database";
 import { hashPassword } from "./dashboard";
 
@@ -44,7 +45,23 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
     if (parsedArgs.initializeDatabase) {
       await database.initialize();
       console.log("Database initialized.");
-    } else {
+    }
+
+    if (parsedArgs.runDoctor) {
+      const report = await database.doctor();
+      printDoctorReport(report, {
+        databaseUrl: config.databaseUrl,
+        nodeEnv: config.nodeEnv,
+      });
+
+      if (report.checks.some((check) => check.status === "error")) {
+        process.exitCode = 1;
+      }
+
+      return;
+    }
+
+    if (!parsedArgs.initializeDatabase) {
       await database.connect();
       console.log("Database setup verified.");
     }
@@ -64,6 +81,7 @@ interface ParsedArgs {
   readonly envValues: ManagedEnvUpdates;
   readonly hasPasswordUpdates: boolean;
   readonly initializeDatabase: boolean;
+  readonly runDoctor: boolean;
   readonly showHelp: boolean;
   readonly updatedLabels: readonly string[];
 }
@@ -72,6 +90,7 @@ function parseArgs(args: readonly string[]): ParsedArgs {
   const envValues: ManagedEnvUpdates = {};
   const updatedLabels: string[] = [];
   let initializeDatabase = false;
+  let runDoctor = false;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -85,6 +104,7 @@ function parseArgs(args: readonly string[]): ParsedArgs {
         envValues,
         hasPasswordUpdates: false,
         initializeDatabase: false,
+        runDoctor: false,
         showHelp: true,
         updatedLabels,
       };
@@ -92,6 +112,11 @@ function parseArgs(args: readonly string[]): ParsedArgs {
 
     if (arg === "--init") {
       initializeDatabase = true;
+      continue;
+    }
+
+    if (arg === "--doctor") {
+      runDoctor = true;
       continue;
     }
 
@@ -126,6 +151,7 @@ function parseArgs(args: readonly string[]): ParsedArgs {
     envValues,
     hasPasswordUpdates: updatedLabels.length > 0,
     initializeDatabase,
+    runDoctor,
     showHelp: false,
     updatedLabels,
   };
@@ -170,16 +196,118 @@ function clearConsole(): void {
   }
 }
 
+interface DoctorPrintOptions {
+  readonly databaseUrl: string;
+  readonly nodeEnv: string;
+}
+
+function printDoctorReport(
+  report: DatabaseDoctorReport,
+  options: DoctorPrintOptions,
+): void {
+  console.log("");
+  console.log("Doctor report");
+  console.log(`Node.js: ${process.version}`);
+  console.log(`Runtime: ${options.nodeEnv}`);
+  console.log(`Database URL: ${redactDatabaseUrl(options.databaseUrl)}`);
+
+  if (report.connectionMilliseconds !== undefined) {
+    console.log(`Connection time: ${report.connectionMilliseconds} ms`);
+  }
+
+  if (report.account) {
+    console.log("");
+    console.log("Account");
+    console.log(`  Database: ${report.account.databaseName}`);
+    console.log(`  Current user: ${report.account.currentUser}`);
+    console.log(`  Session user: ${report.account.sessionUser}`);
+    console.log(
+      `  Privileges: CONNECT=${formatBoolean(report.account.canConnect)}, public USAGE=${formatBoolean(report.account.canUsePublicSchema)}, public CREATE=${formatBoolean(report.account.canCreateInPublicSchema)}`,
+    );
+  }
+
+  if (report.server) {
+    console.log("");
+    console.log("Server");
+    console.log(`  Version: ${report.server.version}`);
+    console.log(`  Current schema: ${report.server.currentSchema ?? "(none)"}`);
+    console.log(
+      `  Address: ${report.server.serverAddress ?? "(local socket)"}:${report.server.serverPort ?? "(unknown)"}`,
+    );
+  }
+
+  if (report.tables.length > 0) {
+    console.log("");
+    console.log("Tables");
+
+    for (const table of report.tables) {
+      const tableState = table.exists
+        ? `${table.estimatedRows ?? "unknown"} estimated rows, ${table.totalSize ?? "unknown size"}`
+        : "missing";
+      console.log(`  ${table.name}: ${tableState}`);
+    }
+  }
+
+  console.log("");
+  console.log("Checks");
+
+  for (const check of report.checks) {
+    console.log(`  ${formatDoctorStatus(check.status)} ${check.name}`);
+    console.log(indentMultiline(check.message, "    "));
+  }
+}
+
+function formatDoctorStatus(status: DatabaseDoctorStatus): string {
+  switch (status) {
+    case "ok":
+      return "[ok]";
+    case "warning":
+      return "[warn]";
+    case "error":
+      return "[error]";
+  }
+}
+
+function formatBoolean(value: boolean): string {
+  return value ? "yes" : "no";
+}
+
+function indentMultiline(value: string, indentation: string): string {
+  return value
+    .split("\n")
+    .map((line) => `${indentation}${line}`)
+    .join("\n");
+}
+
+function redactDatabaseUrl(databaseUrl: string): string {
+  try {
+    const parsedUrl = new URL(databaseUrl);
+
+    if (parsedUrl.password) {
+      parsedUrl.password = "REDACTED";
+    }
+
+    return parsedUrl.toString();
+  } catch {
+    return databaseUrl.replace(
+      /^(postgres(?:ql)?:\/\/[^:@/?#]+:)([^@/?#]*)@/u,
+      "$1REDACTED@",
+    );
+  }
+}
+
 function printHelp(): void {
   console.log(`personal-elite-trade-db
 
 Usage:
   npm run dev
+  npm run dev -- --doctor
   npm run dev -- --init
   npm run dev -- --dashboard-user-password <password>
   npm run dev -- --admin-user-password <password>
 
 Database flags:
+  --doctor                              Check connection, account, schema, and debug info.
   --init                                Create the database schema if needed.
 
 Password flags:
