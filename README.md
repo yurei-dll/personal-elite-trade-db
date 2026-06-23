@@ -10,37 +10,58 @@ A personal database for trading in game Elite: Dangerous.
 
 ## Configuring
 
-Copy the example environment file and fill in your local database connection:
+The app creates and maintains two local configuration files when it starts:
+
+* `config.json`: Non-secret runtime settings.
+* `.env`: Credentials and other secrets.
+
+You can also seed them from the examples:
 
 ```bash
+cp config.example.json config.json
 cp .env.example .env
 ```
 
-The app currently reads these environment variables:
+`config.json` settings:
 
-* `ADMIN_PASSWORD_HASH`: Password hash for destructive dashboard actions.
-* `DATABASE_HOST`: PostgreSQL host. Defaults to the local PostgreSQL socket.
-* `DATABASE_NAME`: PostgreSQL database name. Defaults to `personal_elite_trade_db`.
-* `DATABASE_PASSWORD`: Optional PostgreSQL password for the default URL.
-* `DATABASE_PORT`: PostgreSQL port. Defaults to `5432`.
+* `database.host`: PostgreSQL host. Defaults to the local PostgreSQL socket.
+* `database.name`: PostgreSQL database name. Defaults to `personal_elite_trade_db`.
+* `database.port`: PostgreSQL port. Defaults to `5432`.
+* `nodeEnv`: Runtime environment. Defaults to `development`.
+
+`.env` settings:
+
 * `DATABASE_URL`: PostgreSQL connection string.
-  Overrides the individual `DATABASE_*` connection settings when set.
+  Overrides the generated connection URL when set.
 * `DATABASE_USERNAME`: PostgreSQL username. Defaults to the current system username.
+* `DATABASE_PASSWORD`: Optional PostgreSQL password for the generated connection URL.
 * `DASHBOARD_PASSWORD_HASH`: Password hash for read-only dashboard access.
-* `NODE_ENV`: Runtime environment. Defaults to `development`.
+* `ADMIN_PASSWORD_HASH`: Password hash for destructive dashboard actions.
 
-Example:
+The loader still honors these environment variable overrides for deployment:
+`DATABASE_HOST`, `DATABASE_NAME`, `DATABASE_PORT`, and `NODE_ENV`.
+
+`config.json` example:
+
+```json
+{
+  "database": {
+    "host": "/var/run/postgresql",
+    "name": "personal_elite_trade_db",
+    "port": 5432
+  },
+  "nodeEnv": "development"
+}
+```
+
+`.env` example:
 
 ```bash
 DATABASE_URL=
-DATABASE_NAME=personal_elite_trade_db
 DATABASE_USERNAME=
 DATABASE_PASSWORD=
-DATABASE_HOST=
-DATABASE_PORT=5432
 DASHBOARD_PASSWORD_HASH=
 ADMIN_PASSWORD_HASH=
-NODE_ENV=development
 ```
 
 ## Running

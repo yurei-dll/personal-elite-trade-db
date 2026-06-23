@@ -1,0 +1,8 @@
+{
+  "database": {
+    "host": "/var/run/postgresql",
+    "name": "personal_elite_trade_db",
+    "port": 5432
+  },
+  "nodeEnv": "development"
+}
