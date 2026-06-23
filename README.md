@@ -19,7 +19,7 @@ cp .env.example .env
 The app currently reads these environment variables:
 
 * `ADMIN_PASSWORD_HASH`: Password hash for destructive dashboard actions.
-* `DATABASE_HOST`: PostgreSQL host. Defaults to `localhost`.
+* `DATABASE_HOST`: PostgreSQL host. Defaults to the local PostgreSQL socket.
 * `DATABASE_NAME`: PostgreSQL database name. Defaults to `personal_elite_trade_db`.
 * `DATABASE_PASSWORD`: Optional PostgreSQL password for the default URL.
 * `DATABASE_PORT`: PostgreSQL port. Defaults to `5432`.
@@ -36,7 +36,7 @@ DATABASE_URL=
 DATABASE_NAME=personal_elite_trade_db
 DATABASE_USERNAME=
 DATABASE_PASSWORD=
-DATABASE_HOST=localhost
+DATABASE_HOST=
 DATABASE_PORT=5432
 DASHBOARD_PASSWORD_HASH=
 ADMIN_PASSWORD_HASH=
