@@ -23,6 +23,7 @@ export interface DatabaseManager {
   transaction<Result>(
     callback: (client: PoolClient) => Promise<Result>,
   ): Promise<Result>;
+  initialize(): Promise<void>;
   verifySetup(): Promise<void>;
 }
 
@@ -186,6 +187,22 @@ export function createDatabaseManager(config: AppConfig): DatabaseManager {
         client.release();
       }
     },
+    async initialize(): Promise<void> {
+      const client = await pool.connect();
+
+      try {
+        await client.query("BEGIN");
+        await initializeDatabaseSetup(client);
+        await verifyDatabaseSetup(client);
+        await client.query("COMMIT");
+        isConnected = true;
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
     async verifySetup(): Promise<void> {
       const client = await pool.connect();
 
@@ -196,6 +213,70 @@ export function createDatabaseManager(config: AppConfig): DatabaseManager {
       }
     },
   };
+}
+
+async function initializeDatabaseSetup(client: PoolClient): Promise<void> {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS systems (
+      id bigint PRIMARY KEY,
+      name text NOT NULL UNIQUE,
+      x double precision NOT NULL,
+      y double precision NOT NULL,
+      z double precision NOT NULL,
+      updated_at timestamp with time zone NOT NULL
+    )
+  `);
+
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS stations (
+      id bigint PRIMARY KEY,
+      system_id bigint NOT NULL REFERENCES systems(id),
+      name text NOT NULL,
+      type text,
+      distance_to_arrival double precision,
+      max_landing_pad_size text,
+      has_market boolean NOT NULL,
+      is_planetary boolean,
+      updated_at timestamp with time zone NOT NULL,
+      UNIQUE (system_id, name)
+    )
+  `);
+
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS commodities (
+      id text PRIMARY KEY,
+      name text NOT NULL,
+      category text,
+      updated_at timestamp with time zone NOT NULL
+    )
+  `);
+
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS station_commodities (
+      station_id bigint NOT NULL REFERENCES stations(id),
+      commodity_id text NOT NULL REFERENCES commodities(id),
+      station_sell_price bigint,
+      station_buy_price bigint,
+      demand bigint,
+      demand_level text,
+      stock bigint,
+      stock_level text,
+      collected_at timestamp with time zone NOT NULL,
+      received_at timestamp with time zone NOT NULL,
+      source text NOT NULL,
+      PRIMARY KEY (station_id, commodity_id)
+    )
+  `);
+
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS station_commodities_commodity_id_idx
+    ON station_commodities (commodity_id)
+  `);
+
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS station_commodities_collected_at_idx
+    ON station_commodities (collected_at)
+  `);
 }
 
 interface ColumnCatalogRow extends QueryResultRow {

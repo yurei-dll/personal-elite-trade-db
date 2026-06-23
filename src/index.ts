@@ -12,19 +12,19 @@ const DASHBOARD_PASSWORD_FLAGS = new Set([
 const ADMIN_PASSWORD_FLAGS = new Set(["--admin-user-password", "--admin-password"]);
 
 export async function main(args: readonly string[] = process.argv.slice(2)): Promise<void> {
-  const passwordUpdates = parsePasswordUpdateArgs(args);
+  const parsedArgs = parseArgs(args);
 
-  if (passwordUpdates.showHelp) {
+  if (parsedArgs.showHelp) {
     printHelp();
     return;
   }
 
-  if (passwordUpdates.hasPasswordUpdates) {
+  if (parsedArgs.hasPasswordUpdates) {
     clearConsole();
-    saveManagedEnvValues(passwordUpdates.envValues);
+    saveManagedEnvValues(parsedArgs.envValues);
     console.log("Saved password hash updates to .env.");
 
-    for (const label of passwordUpdates.updatedLabels) {
+    for (const label of parsedArgs.updatedLabels) {
       console.log(`Updated ${label} password hash.`);
     }
 
@@ -41,8 +41,13 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
   const database = createDatabaseManager(config);
 
   try {
-    await database.connect();
-    console.log("Database setup verified.");
+    if (parsedArgs.initializeDatabase) {
+      await database.initialize();
+      console.log("Database initialized.");
+    } else {
+      await database.connect();
+      console.log("Database setup verified.");
+    }
   } finally {
     await database.close();
   }
@@ -55,16 +60,18 @@ if (require.main === module) {
   });
 }
 
-interface PasswordUpdateArgs {
+interface ParsedArgs {
   readonly envValues: ManagedEnvUpdates;
   readonly hasPasswordUpdates: boolean;
+  readonly initializeDatabase: boolean;
   readonly showHelp: boolean;
   readonly updatedLabels: readonly string[];
 }
 
-function parsePasswordUpdateArgs(args: readonly string[]): PasswordUpdateArgs {
+function parseArgs(args: readonly string[]): ParsedArgs {
   const envValues: ManagedEnvUpdates = {};
   const updatedLabels: string[] = [];
+  let initializeDatabase = false;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -77,9 +84,15 @@ function parsePasswordUpdateArgs(args: readonly string[]): PasswordUpdateArgs {
       return {
         envValues,
         hasPasswordUpdates: false,
+        initializeDatabase: false,
         showHelp: true,
         updatedLabels,
       };
+    }
+
+    if (arg === "--init") {
+      initializeDatabase = true;
+      continue;
     }
 
     const parsedFlag = parsePasswordFlag(arg);
@@ -112,6 +125,7 @@ function parsePasswordUpdateArgs(args: readonly string[]): PasswordUpdateArgs {
   return {
     envValues,
     hasPasswordUpdates: updatedLabels.length > 0,
+    initializeDatabase,
     showHelp: false,
     updatedLabels,
   };
@@ -161,8 +175,12 @@ function printHelp(): void {
 
 Usage:
   npm run dev
+  npm run dev -- --init
   npm run dev -- --dashboard-user-password <password>
   npm run dev -- --admin-user-password <password>
+
+Database flags:
+  --init                                Create the database schema if needed.
 
 Password flags:
   --dashboard-user-password <password>  Hash and save the dashboard password.
