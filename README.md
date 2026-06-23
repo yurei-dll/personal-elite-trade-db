@@ -61,6 +61,20 @@ Useful scripts:
 
 Source files live in `src/`. Build output is written to `dist/` and should not be committed.
 
+### Roadmap
+
+* [x] Basic CLI entrypoint
+* [ ] Dashboard
+  * [ ] Basic authentication
+  * [ ] Database stats page
+  * [ ] Server stats page
+  * [ ] Route planning
+  * [ ] Store preferences in browser
+* [ ] Database manager
+  * [ ] Automated setup
+  * [ ] Automatic maintenance
+  * [ ] Live-patch system
+  
 ### Internal structures
 
 #### SQL Table layout
