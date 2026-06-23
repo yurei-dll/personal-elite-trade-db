@@ -1,4 +1,4 @@
-export { createDatabaseManager } from "./manager";
+export { DatabaseSetupError, createDatabaseManager } from "./manager";
 export type { DatabaseManager, DatabaseQueryParams } from "./manager";
 
 export { applyDatabasePatches } from "./patcher";
