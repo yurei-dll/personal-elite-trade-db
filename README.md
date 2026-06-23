@@ -93,37 +93,55 @@ Source files live in `src/`. Build output is written to `dist/` and should not b
 #### SQL Table layout
 
 ```sql
--- Draft sketch only.
--- systems FIRST
 CREATE TABLE systems (
     id BIGINT PRIMARY KEY,
-    name TEXT,
-    x NUMERIC,
-    y NUMERIC,
-    z NUMERIC
+    name TEXT NOT NULL UNIQUE,
+    x DOUBLE PRECISION NOT NULL,
+    y DOUBLE PRECISION NOT NULL,
+    z DOUBLE PRECISION NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
 );
 
 CREATE TABLE stations (
     id BIGINT PRIMARY KEY,
-    name TEXT,
-    system_id BIGINT REFERENCES systems(id),
-    distance_to_arrival NUMERIC,
-    type TEXT
+    system_id BIGINT NOT NULL REFERENCES systems(id),
+    name TEXT NOT NULL,
+    type TEXT,
+    distance_to_arrival DOUBLE PRECISION,
+    max_landing_pad_size TEXT,
+    has_market BOOLEAN NOT NULL DEFAULT false,
+    is_planetary BOOLEAN,
+    updated_at TIMESTAMPTZ NOT NULL,
+    UNIQUE (system_id, name)
 );
 
 CREATE TABLE commodities (
     id TEXT PRIMARY KEY,
-    name TEXT
+    name TEXT NOT NULL,
+    category TEXT,
+    updated_at TIMESTAMPTZ NOT NULL
 );
 
 CREATE TABLE station_commodities (
-    station_id BIGINT REFERENCES stations(id),
-    commodity_id TEXT REFERENCES commodities(id),
-    sell_price NUMERIC,
-    buy_price NUMERIC,
+    station_id BIGINT NOT NULL REFERENCES stations(id),
+    commodity_id TEXT NOT NULL REFERENCES commodities(id),
+    station_sell_price BIGINT,
+    station_buy_price BIGINT,
     demand BIGINT,
-    stock BIGINT
+    demand_level TEXT,
+    stock BIGINT,
+    stock_level TEXT,
+    collected_at TIMESTAMPTZ NOT NULL,
+    received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    source TEXT NOT NULL,
+    PRIMARY KEY (station_id, commodity_id)
 );
+
+CREATE INDEX station_commodities_commodity_id_idx
+    ON station_commodities (commodity_id);
+
+CREATE INDEX station_commodities_collected_at_idx
+    ON station_commodities (collected_at);
 ```
 
 ## Credits
