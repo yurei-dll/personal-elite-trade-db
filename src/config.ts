@@ -1,6 +1,6 @@
 import { userInfo } from "node:os";
 
-const DEFAULT_DATABASE_HOST = "localhost";
+const DEFAULT_DATABASE_HOST = "/var/run/postgresql";
 const DEFAULT_DATABASE_NAME = "personal_elite_trade_db";
 const DEFAULT_DATABASE_PORT = 5432;
 
@@ -54,8 +54,13 @@ function buildDatabaseUrl(options: DatabaseUrlOptions): string {
   const credentials = options.password
     ? `${encodeURIComponent(options.username)}:${encodeURIComponent(options.password)}`
     : encodeURIComponent(options.username);
+  const databaseName = encodeURIComponent(options.databaseName);
 
-  return `postgres://${credentials}@${options.host}:${options.port}/${options.databaseName}`;
+  if (options.host.startsWith("/")) {
+    return `postgres://${credentials}@/${databaseName}?host=${encodeURIComponent(options.host)}`;
+  }
+
+  return `postgres://${credentials}@${options.host}:${options.port}/${databaseName}`;
 }
 
 function parseDatabasePort(port: string | undefined): number {
