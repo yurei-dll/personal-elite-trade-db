@@ -5,6 +5,7 @@ import { loadConfig, saveManagedEnvValues } from "./config";
 import type { DatabaseDoctorReport, DatabaseDoctorStatus } from "./database";
 import { createDatabaseManager } from "./database";
 import { hashPassword } from "./dashboard";
+import { createEddnListener } from "./eddn/listener";
 
 const DASHBOARD_PASSWORD_FLAGS = new Set([
   "--dashboard-user-password",
@@ -29,6 +30,11 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
       console.log(`Updated ${label} password hash.`);
     }
 
+    return;
+  }
+
+  if (parsedArgs.listenEddn) {
+    await runEddnListener();
     return;
   }
 
@@ -81,6 +87,7 @@ interface ParsedArgs {
   readonly envValues: ManagedEnvUpdates;
   readonly hasPasswordUpdates: boolean;
   readonly initializeDatabase: boolean;
+  readonly listenEddn: boolean;
   readonly runDoctor: boolean;
   readonly showHelp: boolean;
   readonly updatedLabels: readonly string[];
@@ -90,6 +97,7 @@ function parseArgs(args: readonly string[]): ParsedArgs {
   const envValues: ManagedEnvUpdates = {};
   const updatedLabels: string[] = [];
   let initializeDatabase = false;
+  let listenEddn = false;
   let runDoctor = false;
 
   for (let index = 0; index < args.length; index += 1) {
@@ -104,6 +112,7 @@ function parseArgs(args: readonly string[]): ParsedArgs {
         envValues,
         hasPasswordUpdates: false,
         initializeDatabase: false,
+        listenEddn: false,
         runDoctor: false,
         showHelp: true,
         updatedLabels,
@@ -112,6 +121,11 @@ function parseArgs(args: readonly string[]): ParsedArgs {
 
     if (arg === "--init") {
       initializeDatabase = true;
+      continue;
+    }
+
+    if (arg === "--eddn") {
+      listenEddn = true;
       continue;
     }
 
@@ -151,10 +165,35 @@ function parseArgs(args: readonly string[]): ParsedArgs {
     envValues,
     hasPasswordUpdates: updatedLabels.length > 0,
     initializeDatabase,
+    listenEddn,
     runDoctor,
     showHelp: false,
     updatedLabels,
   };
+}
+
+async function runEddnListener(): Promise<void> {
+  const listener = createEddnListener();
+  let isStopping = false;
+  const stop = (): void => {
+    if (isStopping) {
+      return;
+    }
+
+    isStopping = true;
+    console.log("Stopping EDDN listener...");
+    void listener.stop();
+  };
+
+  process.once("SIGINT", stop);
+  process.once("SIGTERM", stop);
+
+  try {
+    await listener.start();
+  } finally {
+    process.off("SIGINT", stop);
+    process.off("SIGTERM", stop);
+  }
 }
 
 interface ParsedPasswordFlag {
@@ -303,12 +342,16 @@ Usage:
   npm run dev
   npm run dev -- --doctor
   npm run dev -- --init
+  npm run dev -- --eddn
   npm run dev -- --dashboard-user-password <password>
   npm run dev -- --admin-user-password <password>
 
 Database flags:
   --doctor                              Check connection, account, schema, and debug info.
   --init                                Create the database schema if needed.
+
+EDDN flags:
+  --eddn                                Listen for commodity market messages and log them.
 
 Password flags:
   --dashboard-user-password <password>  Hash and save the dashboard password.
