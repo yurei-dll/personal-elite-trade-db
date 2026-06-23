@@ -18,13 +18,17 @@ cp .env.example .env
 
 The app currently reads these environment variables:
 
+* `ADMIN_PASSWORD_HASH`: Password hash for destructive dashboard actions.
 * `DATABASE_URL`: PostgreSQL connection string.
+* `DASHBOARD_PASSWORD_HASH`: Password hash for read-only dashboard access.
 * `NODE_ENV`: Runtime environment. Defaults to `development`.
 
 Example:
 
 ```bash
 DATABASE_URL=postgres://user:password@localhost:5432/personal_elite_trade_db
+DASHBOARD_PASSWORD_HASH=
+ADMIN_PASSWORD_HASH=
 NODE_ENV=development
 ```
 
@@ -74,6 +78,11 @@ Source files live in `src/`. Build output is written to `dist/` and should not b
     * [ ] Store station/system/commodity data
 * [ ] Dashboard
   * [ ] Basic authentication
+    * [ ] Password storage with `bcrypt`
+    * [ ] Credential manager back-end
+      * [ ] Read-only access by default
+      * [ ] Privilege escalation using separate password for destructive actions.
+    * [ ] Basic rate-limiting for incorrect login attempts
   * [ ] Database stats page
   * [ ] Server stats page
   * [ ] Route planning
@@ -83,12 +92,38 @@ Source files live in `src/`. Build output is written to `dist/` and should not b
 
 #### SQL Table layout
 
-The database schema is not implemented yet. The initial shape will likely need tables for systems, stations, commodities, market prices, and price snapshots/import metadata.
-
 ```sql
 -- Draft sketch only.
--- Final schema should be added once import/update behavior is defined.
+-- systems FIRST
+CREATE TABLE systems (
+    id BIGINT PRIMARY KEY,
+    name TEXT,
+    x NUMERIC,
+    y NUMERIC,
+    z NUMERIC
+);
 
+CREATE TABLE stations (
+    id BIGINT PRIMARY KEY,
+    name TEXT,
+    system_id BIGINT REFERENCES systems(id),
+    distance_to_arrival NUMERIC,
+    type TEXT
+);
+
+CREATE TABLE commodities (
+    id TEXT PRIMARY KEY,
+    name TEXT
+);
+
+CREATE TABLE station_commodities (
+    station_id BIGINT REFERENCES stations(id),
+    commodity_id TEXT REFERENCES commodities(id),
+    sell_price NUMERIC,
+    buy_price NUMERIC,
+    demand BIGINT,
+    stock BIGINT
+);
 ```
 
 ## Credits
