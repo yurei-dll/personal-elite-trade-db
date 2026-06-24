@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/index.ts --dashboard-port 3000 --eddn",
-    "start": "node dist/index.js --dashboard-port 3000 --eddn --enable-write",
+    "start": "node dist/index.js",
     "test": "npm run typecheck",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
