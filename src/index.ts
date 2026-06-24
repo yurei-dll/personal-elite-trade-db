@@ -145,6 +145,14 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
           )} malformed system records.`,
         );
       }
+
+      if (result.systemDuplicatesSkipped > 0) {
+        console.log(
+          `${statusTag("warn")} Skipped ${valueText(
+            String(result.systemDuplicatesSkipped),
+          )} duplicate system records.`,
+        );
+      }
     }
 
     if (parsedArgs.importStations) {
@@ -163,6 +171,14 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
           `${statusTag("warn")} Skipped ${valueText(
             String(result.stationsSkipped),
           )} malformed station records.`,
+        );
+      }
+
+      if (result.stationDuplicatesSkipped > 0) {
+        console.log(
+          `${statusTag("warn")} Skipped ${valueText(
+            String(result.stationDuplicatesSkipped),
+          )} duplicate station records.`,
         );
       }
 
