@@ -568,6 +568,13 @@ export const ROUTE_PLANNER_SCRIPT = `
 
     if (system) {
       setSelectedSystem(system);
+      activateTab("market-browser");
+      window.dispatchEvent(new CustomEvent("petdb:system-selected", {
+        detail: {
+          id: system.id,
+          name: system.name,
+        },
+      }));
     }
   }
 
@@ -802,9 +809,13 @@ export const MARKET_BROWSER_SCRIPT = `
     }
 
     input.value = match.name;
+    await loadSystem(match.id);
+  }
+
+  async function loadSystem(systemId) {
     setStatus("Loading...");
 
-    const response = await window.fetch("/dashboard/data/market-browser/systems/" + encodeURIComponent(match.id), {
+    const response = await window.fetch("/dashboard/data/market-browser/systems/" + encodeURIComponent(systemId), {
       headers: {
         Accept: "application/json",
       },
@@ -829,6 +840,12 @@ export const MARKET_BROWSER_SCRIPT = `
       setStatus("No data");
       renderEmpty("No market data found.");
       return;
+    }
+
+    const input = select("[data-market-system-search]");
+
+    if (input instanceof HTMLInputElement) {
+      input.value = system.name || "";
     }
 
     setStatus(formatNumber(stations.length) + " markets");
@@ -1021,6 +1038,14 @@ export const MARKET_BROWSER_SCRIPT = `
       loadButton.addEventListener("click", () => {
         loadSelectedSystem().catch(() => setStatus("Could not load"));
       });
+    }
+  });
+
+  window.addEventListener("petdb:system-selected", (event) => {
+    const systemId = event.detail?.id;
+
+    if (systemId) {
+      loadSystem(systemId).catch(() => setStatus("Could not load"));
     }
   });
 })();

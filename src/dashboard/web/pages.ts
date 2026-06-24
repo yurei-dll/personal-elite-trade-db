@@ -738,12 +738,20 @@ function renderDocument(options: {
         margin: 0 0 0.75rem;
       }
       .table-shell {
+        max-height: 30rem;
         overflow-x: auto;
+        overflow-y: auto;
       }
       table {
         border-collapse: collapse;
         min-width: 48rem;
         width: 100%;
+      }
+      thead th {
+        background: #090c12;
+        position: sticky;
+        top: 0;
+        z-index: 1;
       }
       th, td {
         border-bottom: 1px solid var(--line);
