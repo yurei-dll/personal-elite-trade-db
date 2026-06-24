@@ -12,7 +12,7 @@ import {
   createDashboardAuthOptions,
   verifyPasswordHash,
 } from "./index";
-import { HTMX_SCRIPT } from "./web/assets";
+import { DASHBOARD_SCRIPT, HTMX_SCRIPT } from "./web/assets";
 import {
   renderDashboardPage,
   renderLoginPage,
@@ -52,6 +52,7 @@ interface RateLimitEntry {
 
 interface DashboardStatsRow {
   readonly commodities: string | number;
+  readonly database_size_bytes: string | number;
   readonly latest_collected_at: Date | string | null;
   readonly latest_received_at: Date | string | null;
   readonly market_rows: string | number;
@@ -87,6 +88,13 @@ export async function startDashboardServer(
 
   app.get("/dashboard/assets/htmx.min.js", (context) => {
     return context.body(HTMX_SCRIPT, 200, {
+      "Cache-Control": "public, max-age=31536000, immutable",
+      "Content-Type": "text/javascript; charset=utf-8",
+    });
+  });
+
+  app.get("/dashboard/assets/dashboard.js", (context) => {
+    return context.body(DASHBOARD_SCRIPT, 200, {
       "Cache-Control": "public, max-age=31536000, immutable",
       "Content-Type": "text/javascript; charset=utf-8",
     });
@@ -249,6 +257,7 @@ async function readDashboardStats(
         (SELECT count(*) FROM systems) AS systems,
         (SELECT count(*) FROM stations) AS stations,
         (SELECT count(*) FROM commodities) AS commodities,
+        pg_database_size(current_database()) AS database_size_bytes,
         count(*) AS market_rows,
         max(collected_at) AS latest_collected_at,
         max(received_at) AS latest_received_at,
@@ -259,6 +268,7 @@ async function readDashboardStats(
 
     return {
       commodities: readOptionalNumber(statsRow?.commodities),
+      databaseSizeBytes: readOptionalNumber(statsRow?.database_size_bytes),
       latestCollectedAt: readOptionalDate(statsRow?.latest_collected_at),
       latestReceivedAt: readOptionalDate(statsRow?.latest_received_at),
       marketRows: readOptionalNumber(statsRow?.market_rows),
@@ -269,6 +279,7 @@ async function readDashboardStats(
   } catch {
     return {
       commodities: undefined,
+      databaseSizeBytes: undefined,
       latestCollectedAt: undefined,
       latestReceivedAt: undefined,
       marketRows: undefined,

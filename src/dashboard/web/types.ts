@@ -7,6 +7,7 @@ export interface DashboardSession {
 
 export interface DashboardStats {
   readonly commodities: number | undefined;
+  readonly databaseSizeBytes: number | undefined;
   readonly latestCollectedAt: Date | undefined;
   readonly latestReceivedAt: Date | undefined;
   readonly marketRows: number | undefined;

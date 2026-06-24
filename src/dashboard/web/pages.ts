@@ -42,9 +42,22 @@ export function renderDashboardPage(options: {
           <p class="eyebrow">Elite: Dangerous trade database</p>
           <h1>Command Dashboard</h1>
         </div>
-        <form method="post" action="/dashboard/logout">
-          <button type="submit" class="secondary">Log out</button>
-        </form>
+        <div class="topbar-controls">
+          <label class="select-field">
+            <span>Update rate</span>
+            <select data-refresh-rate>
+              <option value="5">5 seconds</option>
+              <option value="15">15 seconds</option>
+              <option value="30">30 seconds</option>
+              <option value="60">1 minute</option>
+              <option value="300">5 minutes</option>
+              <option value="0">Manual</option>
+            </select>
+          </label>
+          <form method="post" action="/dashboard/logout">
+            <button type="submit" class="secondary">Log out</button>
+          </form>
+        </div>
       </header>
       <main class="dashboard-grid">
         ${renderSummarySection(options.stats)}
@@ -52,6 +65,7 @@ export function renderDashboardPage(options: {
         ${renderAdminSection(options.session, options.adminMessage)}
       </main>
       <script src="/dashboard/assets/htmx.min.js"></script>
+      <script src="/dashboard/assets/dashboard.js"></script>
     `,
     title: "Command Dashboard",
   });
@@ -59,19 +73,20 @@ export function renderDashboardPage(options: {
 
 export function renderSummarySection(stats: DashboardStats): string {
   return `
-    <section id="summary" class="section wide" hx-get="/dashboard/partials/summary" hx-trigger="every 30s" hx-swap="outerHTML">
+    <section id="summary" class="section wide">
       <div class="section-header">
         <div>
           <p class="eyebrow">Database</p>
           <h2>Trade Data</h2>
         </div>
-        <span class="pill">auto-refresh 30s</span>
+        <span class="pill" data-refresh-label>auto-refresh 30s</span>
       </div>
       <div class="metric-grid">
         ${renderMetric("Systems", stats.systems)}
         ${renderMetric("Stations", stats.stations)}
         ${renderMetric("Commodities", stats.commodities)}
         ${renderMetric("Market rows", stats.marketRows)}
+        ${renderMetric("Database size", formatBytes(stats.databaseSizeBytes))}
       </div>
       <div class="freshness">
         <p><span>Latest collected</span>${formatDate(stats.latestCollectedAt)}</p>
@@ -139,11 +154,11 @@ function renderAdminSection(
   `;
 }
 
-function renderMetric(label: string, value: number | undefined): string {
+function renderMetric(label: string, value: number | string | undefined): string {
   return `
     <article class="metric">
       <span>${escapeHtml(label)}</span>
-      <strong>${formatNumber(value)}</strong>
+      <strong>${formatMetricValue(value)}</strong>
     </article>
   `;
 }
@@ -195,7 +210,7 @@ function renderDocument(options: {
       h1, h2, p { margin: 0; }
       h1 { font-size: clamp(2rem, 5vw, 4.5rem); line-height: 1; }
       h2 { font-size: 1.2rem; }
-      button, input {
+      button, input, select {
         border: 1px solid var(--line);
         border-radius: 8px;
         color: var(--text);
@@ -222,6 +237,14 @@ function renderDocument(options: {
         padding: 0.75rem 0.85rem;
         width: 100%;
       }
+      select {
+        appearance: none;
+        background: #090c12;
+        cursor: pointer;
+        margin-top: 0.45rem;
+        min-width: 9rem;
+        padding: 0.7rem 2rem 0.7rem 0.85rem;
+      }
       label span {
         color: var(--muted);
         display: block;
@@ -247,6 +270,23 @@ function renderDocument(options: {
         gap: 1rem;
         justify-content: space-between;
         padding: 2rem;
+      }
+      .topbar-controls {
+        align-items: end;
+        display: flex;
+        gap: 0.75rem;
+      }
+      .select-field {
+        position: relative;
+      }
+      .select-field::after {
+        color: var(--muted);
+        content: "v";
+        font-size: 0.75rem;
+        pointer-events: none;
+        position: absolute;
+        right: 0.8rem;
+        top: 2.35rem;
       }
       .dashboard-grid {
         display: grid;
@@ -359,6 +399,10 @@ function renderDocument(options: {
           flex-direction: column;
           padding: 1rem;
         }
+        .topbar-controls {
+          align-items: stretch;
+          flex-direction: column;
+        }
         .dashboard-grid {
           grid-template-columns: 1fr;
           padding: 0 1rem 1rem;
@@ -373,8 +417,33 @@ function renderDocument(options: {
 </html>`;
 }
 
+function formatMetricValue(value: number | string | undefined): string {
+  return typeof value === "number" ? formatNumber(value) : escapeHtml(value ?? "unknown");
+}
+
 function formatNumber(value: number | undefined): string {
   return value === undefined ? "unknown" : new Intl.NumberFormat("en-US").format(value);
+}
+
+function formatBytes(value: number | undefined): string {
+  if (value === undefined) {
+    return "unknown";
+  }
+
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let unitIndex = 0;
+  let scaledValue = value;
+
+  while (scaledValue >= 1024 && unitIndex < units.length - 1) {
+    scaledValue /= 1024;
+    unitIndex += 1;
+  }
+
+  const maximumFractionDigits = unitIndex === 0 ? 0 : 1;
+
+  return `${new Intl.NumberFormat("en-US", {
+    maximumFractionDigits,
+  }).format(scaledValue)} ${units[unitIndex]}`;
 }
 
 function formatDate(value: Date | undefined): string {
