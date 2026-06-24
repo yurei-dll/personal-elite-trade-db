@@ -2,7 +2,11 @@
 
 import chalk from "chalk";
 import type { AppConfig, ManagedEnvUpdates } from "./config";
-import { loadConfig, saveManagedEnvValues } from "./config";
+import {
+  ensureDashboardSessionSecret,
+  loadConfig,
+  saveManagedEnvValues,
+} from "./config";
 import type { DatabaseDoctorReport, DatabaseDoctorStatus } from "./database";
 import {
   applyDatabasePatches,
@@ -382,9 +386,15 @@ async function runDashboard(
     throw new Error("DASHBOARD_PASSWORD_HASH is not set in .env.");
   }
 
-  const database = createDatabaseManager(config);
+  const sessionSecret = ensureDashboardSessionSecret(config);
+
+  if (sessionSecret.created) {
+    console.log(`${statusTag("created")} Saved dashboard session secret to .env.`);
+  }
+
+  const database = createDatabaseManager(sessionSecret.config);
   const server = await startDashboardServer({
-    config,
+    config: sessionSecret.config,
     database,
     port,
   });
@@ -430,8 +440,14 @@ async function runDashboardWithEddnWriter(
     throw new Error("DASHBOARD_PASSWORD_HASH is not set in .env.");
   }
 
-  const dashboardDatabase = createDatabaseManager(config);
-  const eddnDatabase = createDatabaseManager(config);
+  const sessionSecret = ensureDashboardSessionSecret(config);
+
+  if (sessionSecret.created) {
+    console.log(`${statusTag("created")} Saved dashboard session secret to .env.`);
+  }
+
+  const dashboardDatabase = createDatabaseManager(sessionSecret.config);
+  const eddnDatabase = createDatabaseManager(sessionSecret.config);
   const patchBuffer = new EddnMarketPatchBuffer();
   const shownWarnings = new Set<string>();
   const listener = createEddnListener({
@@ -471,7 +487,7 @@ async function runDashboardWithEddnWriter(
 
   try {
     server = await startDashboardServer({
-      config,
+      config: sessionSecret.config,
       database: dashboardDatabase,
       port,
     });

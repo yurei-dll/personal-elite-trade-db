@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { setCookie } from "hono/cookie";
@@ -68,7 +68,7 @@ export async function startDashboardServer(
   const authManager = createDashboardAuthManager(
     createDashboardAuthOptions(options.config, verifyPasswordHash),
   );
-  const sessionSecret = randomBytes(32);
+  const sessionSecret = readSessionSecret(options.config.dashboardSessionSecret);
   const loginRateLimits = new Map<string, RateLimitEntry>();
   const app = new Hono();
 
@@ -224,6 +224,20 @@ export async function startDashboardServer(
       });
     },
   };
+}
+
+function readSessionSecret(value: string | undefined): Buffer {
+  if (!value) {
+    throw new Error("DASHBOARD_SESSION_SECRET is not set in .env.");
+  }
+
+  const secret = Buffer.from(value, "base64url");
+
+  if (secret.length < 32) {
+    throw new Error("DASHBOARD_SESSION_SECRET must be at least 32 bytes.");
+  }
+
+  return secret;
 }
 
 async function readDashboardStats(

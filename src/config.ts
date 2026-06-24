@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { userInfo } from "node:os";
 import { join } from "node:path";
@@ -15,6 +16,7 @@ const MANAGED_ENV_KEYS = [
   "DATABASE_PASSWORD",
   "DASHBOARD_PASSWORD_HASH",
   "ADMIN_PASSWORD_HASH",
+  "DASHBOARD_SESSION_SECRET",
 ] as const;
 
 const DEFAULT_ENV_VALUES: Record<ManagedEnvKey, string> = {
@@ -23,6 +25,7 @@ const DEFAULT_ENV_VALUES: Record<ManagedEnvKey, string> = {
   DATABASE_URL: "",
   DATABASE_USERNAME: "",
   DASHBOARD_PASSWORD_HASH: "",
+  DASHBOARD_SESSION_SECRET: "",
 };
 
 export interface AppConfig {
@@ -31,6 +34,7 @@ export interface AppConfig {
   readonly databaseUrl: string;
   readonly databaseUsername: string;
   readonly dashboardPasswordHash: string | undefined;
+  readonly dashboardSessionSecret: string | undefined;
   readonly nodeEnv: string;
 }
 
@@ -53,6 +57,11 @@ interface ManagedConfigFile {
 export type ManagedEnvKey = (typeof MANAGED_ENV_KEYS)[number];
 
 export type ManagedEnvUpdates = Partial<Record<ManagedEnvKey, string>>;
+
+export interface DashboardSessionSecretResult {
+  readonly config: AppConfig;
+  readonly created: boolean;
+}
 
 export function loadConfig(
   env: NodeJS.ProcessEnv = process.env,
@@ -95,10 +104,39 @@ export function loadConfig(
     databaseUrl,
     databaseUsername,
     dashboardPasswordHash: readEnvValue("DASHBOARD_PASSWORD_HASH"),
+    dashboardSessionSecret: readEnvValue("DASHBOARD_SESSION_SECRET"),
     nodeEnv:
       readEnvValue("NODE_ENV") ??
       readOptionalString(fileConfig.nodeEnv) ??
       DEFAULT_NODE_ENV,
+  };
+}
+
+export function ensureDashboardSessionSecret(
+  config: AppConfig,
+  options: ConfigManagerOptions = {},
+): DashboardSessionSecretResult {
+  if (config.dashboardSessionSecret) {
+    return {
+      config,
+      created: false,
+    };
+  }
+
+  const dashboardSessionSecret = randomBytes(32).toString("base64url");
+  saveManagedEnvValues(
+    {
+      DASHBOARD_SESSION_SECRET: dashboardSessionSecret,
+    },
+    options,
+  );
+
+  return {
+    config: {
+      ...config,
+      dashboardSessionSecret,
+    },
+    created: true,
   };
 }
 

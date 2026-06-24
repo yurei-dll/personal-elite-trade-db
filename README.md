@@ -37,6 +37,8 @@ cp .env.example .env
 * `DATABASE_PASSWORD`: Optional PostgreSQL password for the generated connection URL.
 * `DASHBOARD_PASSWORD_HASH`: Password hash for read-only dashboard access.
 * `ADMIN_PASSWORD_HASH`: Password hash for destructive dashboard actions.
+* `DASHBOARD_SESSION_SECRET`: Secret used to sign dashboard session cookies.
+  Generated automatically when the dashboard starts.
 
 The loader still honors these environment variable overrides for deployment:
 `DATABASE_HOST`, `DATABASE_NAME`, `DATABASE_PORT`, and `NODE_ENV`.
@@ -62,6 +64,7 @@ DATABASE_USERNAME=
 DATABASE_PASSWORD=
 DASHBOARD_PASSWORD_HASH=
 ADMIN_PASSWORD_HASH=
+DASHBOARD_SESSION_SECRET=
 ```
 
 Set dashboard password hashes from the CLI:
