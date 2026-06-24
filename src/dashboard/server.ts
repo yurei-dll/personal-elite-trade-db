@@ -50,14 +50,14 @@ interface RateLimitEntry {
   resetAt: number;
 }
 
-interface CountRow {
-  readonly count: string | number;
-}
-
-interface MarketFreshnessRow {
+interface DashboardStatsRow {
+  readonly commodities: string | number;
   readonly latest_collected_at: Date | string | null;
   readonly latest_received_at: Date | string | null;
+  readonly market_rows: string | number;
   readonly stale_market_rows: string | number | null;
+  readonly stations: string | number;
+  readonly systems: string | number;
 }
 
 export async function startDashboardServer(
@@ -230,37 +230,27 @@ async function readDashboardStats(
   database: DatabaseManager,
 ): Promise<DashboardStats> {
   try {
-    const [
-      systems,
-      stations,
-      commodities,
-      marketRows,
-      marketFreshness,
-    ] = await Promise.all([
-      readTableCount(database, "systems"),
-      readTableCount(database, "stations"),
-      readTableCount(database, "commodities"),
-      readTableCount(database, "station_commodities"),
-      database.query<MarketFreshnessRow>(`
-        SELECT
-          max(collected_at) AS latest_collected_at,
-          max(received_at) AS latest_received_at,
-          count(*) FILTER (
-            WHERE collected_at < now() - interval '7 days'
-          ) AS stale_market_rows
-        FROM station_commodities
-      `),
-    ]);
-    const freshnessRow = marketFreshness.rows[0];
+    const statsResult = await database.query<DashboardStatsRow>(`
+      SELECT
+        (SELECT count(*) FROM systems) AS systems,
+        (SELECT count(*) FROM stations) AS stations,
+        (SELECT count(*) FROM commodities) AS commodities,
+        count(*) AS market_rows,
+        max(collected_at) AS latest_collected_at,
+        max(received_at) AS latest_received_at,
+        count(*) FILTER (WHERE collected_at < now() - interval '7 days') AS stale_market_rows
+      FROM station_commodities
+    `);
+    const statsRow = statsResult.rows[0];
 
     return {
-      commodities,
-      latestCollectedAt: readOptionalDate(freshnessRow?.latest_collected_at),
-      latestReceivedAt: readOptionalDate(freshnessRow?.latest_received_at),
-      marketRows,
-      staleMarketRows: readOptionalNumber(freshnessRow?.stale_market_rows),
-      stations,
-      systems,
+      commodities: readOptionalNumber(statsRow?.commodities),
+      latestCollectedAt: readOptionalDate(statsRow?.latest_collected_at),
+      latestReceivedAt: readOptionalDate(statsRow?.latest_received_at),
+      marketRows: readOptionalNumber(statsRow?.market_rows),
+      staleMarketRows: readOptionalNumber(statsRow?.stale_market_rows),
+      stations: readOptionalNumber(statsRow?.stations),
+      systems: readOptionalNumber(statsRow?.systems),
     };
   } catch {
     return {
@@ -273,14 +263,6 @@ async function readDashboardStats(
       systems: undefined,
     };
   }
-}
-
-async function readTableCount(
-  database: DatabaseManager,
-  tableName: "commodities" | "station_commodities" | "stations" | "systems",
-): Promise<number> {
-  const result = await database.query<CountRow>(`SELECT count(*) AS count FROM ${tableName}`);
-  return readOptionalNumber(result.rows[0]?.count) ?? 0;
 }
 
 async function readDashboardHealth(
