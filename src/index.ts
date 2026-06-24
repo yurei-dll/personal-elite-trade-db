@@ -4,7 +4,7 @@ import chalk from "chalk";
 import type { AppConfig, ManagedEnvUpdates } from "./config";
 import { loadConfig, saveManagedEnvValues } from "./config";
 import type { DatabaseDoctorReport, DatabaseDoctorStatus } from "./database";
-import { createDatabaseManager } from "./database";
+import { createDatabaseManager, importSystems } from "./database";
 import { hashPassword, verifyPasswordHash } from "./dashboard";
 import { createEddnListener } from "./eddn/listener";
 
@@ -80,6 +80,29 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
       return;
     }
 
+    if (parsedArgs.importSystems) {
+      await database.connect();
+      const result = await importSystems(database, {
+        filePath: parsedArgs.importFilePath,
+      });
+
+      console.log(
+        `${statusTag("ok")} Imported ${valueText(
+          String(result.systemsImported),
+        )} systems across ${valueText(String(result.batchesPatched))} batches.`,
+      );
+
+      if (result.systemsSkipped > 0) {
+        console.log(
+          `${statusTag("warn")} Skipped ${valueText(
+            String(result.systemsSkipped),
+          )} malformed system records.`,
+        );
+      }
+
+      return;
+    }
+
     if (!parsedArgs.initializeDatabase) {
       await database.connect();
       console.log(`${statusTag("ok")} Database setup verified.`);
@@ -102,6 +125,8 @@ interface ParsedArgs {
   readonly destroyPassword: string | undefined;
   readonly envValues: ManagedEnvUpdates;
   readonly hasPasswordUpdates: boolean;
+  readonly importFilePath: string | undefined;
+  readonly importSystems: boolean;
   readonly initializeDatabase: boolean;
   readonly listenEddn: boolean;
   readonly runDoctor: boolean;
@@ -114,6 +139,8 @@ function parseArgs(args: readonly string[]): ParsedArgs {
   const updatedLabels: string[] = [];
   let destroyDatabase = false;
   let destroyPassword: string | undefined;
+  let importFilePath: string | undefined;
+  let importSystemsFlag = false;
   let initializeDatabase = false;
   let listenEddn = false;
   let runDoctor = false;
@@ -131,6 +158,8 @@ function parseArgs(args: readonly string[]): ParsedArgs {
         destroyPassword: undefined,
         envValues,
         hasPasswordUpdates: false,
+        importFilePath: undefined,
+        importSystems: false,
         initializeDatabase: false,
         listenEddn: false,
         runDoctor: false,
@@ -151,6 +180,19 @@ function parseArgs(args: readonly string[]): ParsedArgs {
 
     if (arg === "--doctor") {
       runDoctor = true;
+      continue;
+    }
+
+    if (arg === "--import") {
+      importSystemsFlag = true;
+
+      const nextArg = args[index + 1];
+
+      if (nextArg && !nextArg.startsWith("--")) {
+        importFilePath = nextArg;
+        index += 1;
+      }
+
       continue;
     }
 
@@ -222,6 +264,8 @@ function parseArgs(args: readonly string[]): ParsedArgs {
     destroyPassword,
     envValues,
     hasPasswordUpdates: updatedLabels.length > 0,
+    importFilePath,
+    importSystems: importSystemsFlag,
     initializeDatabase,
     listenEddn,
     runDoctor,
@@ -495,6 +539,7 @@ Usage:
   npm run dev
   npm run dev -- --doctor
   npm run dev -- --init
+  npm run dev -- --import [systems file]
   npm run dev -- --destroy-db --password <admin password>
   npm run dev -- --eddn
   npm run dev -- --dashboard-user-password <password>
@@ -505,6 +550,7 @@ Database flags:
   --init                                Create the database schema if needed.
   --destroy-db                          Drop the configured PostgreSQL database.
   --password <password>                 Admin password required by --destroy-db.
+  --import [systems file]               Import gzipped systems JSON from import/.
 
 EDDN flags:
   --eddn                                Listen for commodity market messages and log them.
