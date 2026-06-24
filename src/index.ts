@@ -467,9 +467,11 @@ async function runDashboard(
   }
 
   const database = createDatabaseManager(sessionSecret.config);
+  const inboundMessages = createInboundMessageTracker();
   const server = await startDashboardServer({
     config: sessionSecret.config,
     database,
+    inboundMessages,
     port,
   });
   let isStopping = false;

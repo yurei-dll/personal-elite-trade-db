@@ -87,8 +87,10 @@ export const DASHBOARD_SCRIPT = `
       totalLabel.textContent = \`\${formatNumber(total)} in \${formatNumber(windowMinutes)}m\`;
     }
 
+    const hasMessages = total > 0;
+
     if (emptyLabel) {
-      emptyLabel.hidden = total > 0;
+      emptyLabel.hidden = hasMessages;
     }
 
     const rect = canvas.getBoundingClientRect();
@@ -120,34 +122,42 @@ export const DASHBOARD_SCRIPT = `
 
     drawChartGrid(context, padding, chartWidth, chartHeight, maxCount);
 
-    if (points.length === 0) {
+    if (!hasMessages || points.length === 0) {
       drawEmptyChart(context, width, height);
       return;
     }
 
-    context.beginPath();
-    counts.forEach((count, index) => {
+    const coordinates = counts.map((count, index) => {
       const x = padding.left + (points.length === 1 ? chartWidth : (index / (points.length - 1)) * chartWidth);
       const y = padding.top + chartHeight - (count / maxCount) * chartHeight;
 
-      if (index === 0) {
-        context.moveTo(x, y);
-      } else {
-        context.lineTo(x, y);
-      }
+      return { x, y };
     });
-    context.strokeStyle = "#48d7ff";
-    context.lineWidth = 2.5;
-    context.stroke();
 
+    context.beginPath();
+    context.moveTo(padding.left, padding.top + chartHeight);
+    coordinates.forEach((point) => {
+      context.lineTo(point.x, point.y);
+    });
     context.lineTo(padding.left + chartWidth, padding.top + chartHeight);
-    context.lineTo(padding.left, padding.top + chartHeight);
     context.closePath();
     const fill = context.createLinearGradient(0, padding.top, 0, padding.top + chartHeight);
     fill.addColorStop(0, "rgba(72, 215, 255, 0.28)");
     fill.addColorStop(1, "rgba(72, 215, 255, 0.02)");
     context.fillStyle = fill;
     context.fill();
+
+    context.beginPath();
+    coordinates.forEach((point, index) => {
+      if (index === 0) {
+        context.moveTo(point.x, point.y);
+      } else {
+        context.lineTo(point.x, point.y);
+      }
+    });
+    context.strokeStyle = "#48d7ff";
+    context.lineWidth = 2.5;
+    context.stroke();
 
     const lastPoint = points[points.length - 1];
     const lastCount = counts[counts.length - 1] || 0;
