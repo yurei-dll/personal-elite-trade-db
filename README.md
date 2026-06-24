@@ -89,11 +89,14 @@ Run the TypeScript source directly during development:
 npm run dev
 ```
 
-Initialize the database schema:
+Initialize the configured database and schema:
 
 ```bash
 npm run dev -- --init
 ```
+
+If the configured PostgreSQL database does not exist, `--init` creates it first
+and prints a `[created]` cue before initializing the schema.
 
 Check the database connection, account privileges, schema, and debug info:
 

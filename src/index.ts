@@ -54,7 +54,12 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
 
   try {
     if (parsedArgs.initializeDatabase) {
-      await database.initialize();
+      const result = await database.initialize();
+
+      if (result.databaseCreated) {
+        console.log(`[created] Database did not exist; created ${result.databaseName}.`);
+      }
+
       console.log("Database initialized.");
     }
 
@@ -234,6 +239,7 @@ async function destroyDatabase(
   }
 
   const isAuthorized = await verifyPasswordHash(password, config.adminPasswordHash);
+  clearConsole();
 
   if (!isAuthorized) {
     throw new Error("Admin password did not match.");

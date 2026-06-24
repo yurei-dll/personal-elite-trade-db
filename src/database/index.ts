@@ -2,6 +2,7 @@ export { DatabaseSetupError, createDatabaseManager } from "./manager";
 export type {
   DatabaseDoctorReport,
   DatabaseDoctorStatus,
+  DatabaseInitializeResult,
   DatabaseManager,
   DatabaseQueryParams,
 } from "./manager";

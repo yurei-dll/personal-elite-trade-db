@@ -52,6 +52,11 @@ export interface DatabaseDoctorReport {
   readonly tables: readonly DatabaseDoctorTableInfo[];
 }
 
+export interface DatabaseInitializeResult {
+  readonly databaseCreated: boolean;
+  readonly databaseName: string;
+}
+
 export interface DatabaseManager {
   readonly databaseUrl: string;
   readonly isConnected: boolean;
@@ -66,7 +71,7 @@ export interface DatabaseManager {
     callback: (client: PoolClient) => Promise<Result>,
   ): Promise<Result>;
   doctor(): Promise<DatabaseDoctorReport>;
-  initialize(): Promise<void>;
+  initialize(): Promise<DatabaseInitializeResult>;
   verifySetup(): Promise<void>;
 }
 
@@ -353,7 +358,8 @@ export function createDatabaseManager(config: AppConfig): DatabaseManager {
         client.release();
       }
     },
-    async initialize(): Promise<void> {
+    async initialize(): Promise<DatabaseInitializeResult> {
+      const databaseCreation = await ensureDatabaseExists(config.databaseUrl);
       const client = await pool.connect();
 
       try {
@@ -362,6 +368,7 @@ export function createDatabaseManager(config: AppConfig): DatabaseManager {
         await verifyDatabaseSetup(client);
         await client.query("COMMIT");
         isConnected = true;
+        return databaseCreation;
       } catch (error) {
         await client.query("ROLLBACK");
         throw error;
@@ -427,6 +434,71 @@ function replaceDatabaseNameInUrl(
 
 function quoteIdentifier(identifier: string): string {
   return `"${identifier.replace(/"/gu, '""')}"`;
+}
+
+interface DatabaseCreationResult {
+  readonly created: boolean;
+  readonly databaseName: string;
+}
+
+interface DatabaseExistsRow extends QueryResultRow {
+  readonly exists: boolean;
+}
+
+async function ensureDatabaseExists(
+  databaseUrl: string,
+): Promise<DatabaseInitializeResult> {
+  const targetDatabaseName = readDatabaseNameFromUrl(databaseUrl);
+  const maintenanceDatabaseName =
+    targetDatabaseName === "postgres" ? "template1" : "postgres";
+  const maintenancePool = new Pool({
+    connectionString: replaceDatabaseNameInUrl(
+      databaseUrl,
+      maintenanceDatabaseName,
+    ),
+    connectionTimeoutMillis: 5000,
+  });
+  const client = await maintenancePool.connect();
+
+  try {
+    const creationResult = await createDatabaseIfMissing(
+      client,
+      targetDatabaseName,
+    );
+
+    return {
+      databaseCreated: creationResult.created,
+      databaseName: creationResult.databaseName,
+    };
+  } finally {
+    client.release();
+    await maintenancePool.end();
+  }
+}
+
+async function createDatabaseIfMissing(
+  client: PoolClient,
+  databaseName: string,
+): Promise<DatabaseCreationResult> {
+  const existsResult = await client.query<DatabaseExistsRow>(
+    "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1) AS exists",
+    [databaseName],
+  );
+  const exists = existsResult.rows[0]?.exists ?? false;
+
+  if (exists) {
+    return {
+      created: false,
+      databaseName,
+    };
+  }
+
+  await client.query(`CREATE DATABASE ${quoteIdentifier(databaseName)}`);
+
+  return {
+    created: true,
+    databaseName,
+  };
 }
 
 interface DoctorAccountRow extends QueryResultRow {
