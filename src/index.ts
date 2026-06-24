@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import chalk from "chalk";
 import type { AppConfig, ManagedEnvUpdates } from "./config";
 import { loadConfig, saveManagedEnvValues } from "./config";
 import type { DatabaseDoctorReport, DatabaseDoctorStatus } from "./database";
@@ -24,10 +25,10 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
   if (parsedArgs.hasPasswordUpdates) {
     clearConsole();
     saveManagedEnvValues(parsedArgs.envValues);
-    console.log("Saved password hash updates to .env.");
+    console.log(successText("Saved password hash updates to .env."));
 
     for (const label of parsedArgs.updatedLabels) {
-      console.log(`Updated ${label} password hash.`);
+      console.log(`${statusTag("ok")} Updated ${accentText(label)} password hash.`);
     }
 
     return;
@@ -45,10 +46,10 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
     return;
   }
 
-  console.log("personal-elite-trade-db");
-  console.log(`Environment: ${config.nodeEnv}`);
-  console.log(`Database: ${config.databaseName}`);
-  console.log(`Database user: ${config.databaseUsername}`);
+  printBanner();
+  console.log(`${fieldLabel("Environment")}: ${valueText(config.nodeEnv)}`);
+  console.log(`${fieldLabel("Database")}: ${valueText(config.databaseName)}`);
+  console.log(`${fieldLabel("Database user")}: ${valueText(config.databaseUsername)}`);
 
   const database = createDatabaseManager(config);
 
@@ -57,10 +58,12 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
       const result = await database.initialize();
 
       if (result.databaseCreated) {
-        console.log(`[created] Database did not exist; created ${result.databaseName}.`);
+        console.log(
+          `${statusTag("created")} Database did not exist; created ${valueText(result.databaseName)}.`,
+        );
       }
 
-      console.log("Database initialized.");
+      console.log(`${statusTag("ok")} Database initialized.`);
     }
 
     if (parsedArgs.runDoctor) {
@@ -79,7 +82,7 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
 
     if (!parsedArgs.initializeDatabase) {
       await database.connect();
-      console.log("Database setup verified.");
+      console.log(`${statusTag("ok")} Database setup verified.`);
     }
   } finally {
     await database.close();
@@ -88,7 +91,8 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
 
 if (require.main === module) {
   void main().catch((error: unknown) => {
-    console.error(error instanceof Error ? error.message : error);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`${statusTag("error")} ${dangerText(message)}`);
     process.exitCode = 1;
   });
 }
@@ -245,14 +249,14 @@ async function destroyDatabase(
     throw new Error("Admin password did not match.");
   }
 
-  console.log("personal-elite-trade-db");
-  console.log(`Database: ${config.databaseName}`);
+  printBanner();
+  console.log(`${fieldLabel("Database")}: ${valueText(config.databaseName)}`);
 
   const database = createDatabaseManager(config);
 
   try {
     const destroyedDatabaseName = await database.destroy();
-    console.log(`Database destroyed: ${destroyedDatabaseName}`);
+    console.log(`${statusTag("warn")} Database destroyed: ${valueText(destroyedDatabaseName)}`);
   } finally {
     await database.close();
   }
@@ -267,7 +271,7 @@ async function runEddnListener(): Promise<void> {
     }
 
     isStopping = true;
-    console.log("Stopping EDDN listener...");
+    console.log(`${statusTag("warn")} Stopping EDDN listener...`);
     void listener.stop();
   };
 
@@ -345,53 +349,61 @@ function printDoctorReport(
   options: DoctorPrintOptions,
 ): void {
   console.log("");
-  console.log("Doctor report");
-  console.log(`Node.js: ${process.version}`);
-  console.log(`Runtime: ${options.nodeEnv}`);
-  console.log(`Database URL: ${redactDatabaseUrl(options.databaseUrl)}`);
+  console.log(sectionTitle("Doctor report"));
+  console.log(`${fieldLabel("Node.js")}: ${valueText(process.version)}`);
+  console.log(`${fieldLabel("Runtime")}: ${valueText(options.nodeEnv)}`);
+  console.log(`${fieldLabel("Database URL")}: ${redactDatabaseUrl(options.databaseUrl)}`);
 
   if (report.connectionMilliseconds !== undefined) {
-    console.log(`Connection time: ${report.connectionMilliseconds} ms`);
+    console.log(
+      `${fieldLabel("Connection time")}: ${valueText(`${report.connectionMilliseconds} ms`)}`,
+    );
   }
 
   if (report.account) {
     console.log("");
-    console.log("Account");
-    console.log(`  Database: ${report.account.databaseName}`);
-    console.log(`  Current user: ${report.account.currentUser}`);
-    console.log(`  Session user: ${report.account.sessionUser}`);
+    console.log(sectionTitle("Account"));
+    console.log(`  ${fieldLabel("Database")}: ${valueText(report.account.databaseName)}`);
+    console.log(`  ${fieldLabel("Current user")}: ${valueText(report.account.currentUser)}`);
+    console.log(`  ${fieldLabel("Session user")}: ${valueText(report.account.sessionUser)}`);
     console.log(
-      `  Privileges: CONNECT=${formatBoolean(report.account.canConnect)}, public USAGE=${formatBoolean(report.account.canUsePublicSchema)}, public CREATE=${formatBoolean(report.account.canCreateInPublicSchema)}`,
+      `  ${fieldLabel("Privileges")}: CONNECT=${formatBoolean(report.account.canConnect)}, public USAGE=${formatBoolean(report.account.canUsePublicSchema)}, public CREATE=${formatBoolean(report.account.canCreateInPublicSchema)}`,
     );
   }
 
   if (report.server) {
     console.log("");
-    console.log("Server");
-    console.log(`  Version: ${report.server.version}`);
-    console.log(`  Current schema: ${report.server.currentSchema ?? "(none)"}`);
+    console.log(sectionTitle("Server"));
+    console.log(`  ${fieldLabel("Version")}: ${valueText(report.server.version)}`);
     console.log(
-      `  Address: ${report.server.serverAddress ?? "(local socket)"}:${report.server.serverPort ?? "(unknown)"}`,
+      `  ${fieldLabel("Current schema")}: ${valueText(report.server.currentSchema ?? "(none)")}`,
+    );
+    console.log(
+      `  ${fieldLabel("Address")}: ${valueText(
+        `${report.server.serverAddress ?? "(local socket)"}:${report.server.serverPort ?? "(unknown)"}`,
+      )}`,
     );
   }
 
   if (report.tables.length > 0) {
     console.log("");
-    console.log("Tables");
+    console.log(sectionTitle("Tables"));
 
     for (const table of report.tables) {
       const tableState = table.exists
-        ? `${table.estimatedRows ?? "unknown"} estimated rows, ${table.totalSize ?? "unknown size"}`
-        : "missing";
-      console.log(`  ${table.name}: ${tableState}`);
+        ? valueText(
+            `${table.estimatedRows ?? "unknown"} estimated rows, ${table.totalSize ?? "unknown size"}`,
+          )
+        : dangerText("missing");
+      console.log(`  ${accentText(table.name)}: ${tableState}`);
     }
   }
 
   console.log("");
-  console.log("Checks");
+  console.log(sectionTitle("Checks"));
 
   for (const check of report.checks) {
-    console.log(`  ${formatDoctorStatus(check.status)} ${check.name}`);
+    console.log(`  ${formatDoctorStatus(check.status)} ${accentText(check.name)}`);
     console.log(indentMultiline(check.message, "    "));
   }
 }
@@ -399,16 +411,57 @@ function printDoctorReport(
 function formatDoctorStatus(status: DatabaseDoctorStatus): string {
   switch (status) {
     case "ok":
-      return "[ok]";
+      return statusTag("ok");
     case "warning":
-      return "[warn]";
+      return statusTag("warn");
     case "error":
-      return "[error]";
+      return statusTag("error");
   }
 }
 
 function formatBoolean(value: boolean): string {
-  return value ? "yes" : "no";
+  return value ? successText("yes") : dangerText("no");
+}
+
+function printBanner(): void {
+  console.log(chalk.bold.hex("#ff5fd7")("personal-elite-trade-db"));
+}
+
+function sectionTitle(value: string): string {
+  return chalk.bold.underline.hex("#5fd7ff")(value);
+}
+
+function fieldLabel(value: string): string {
+  return chalk.bold.hex("#ffd75f")(value);
+}
+
+function valueText(value: string): string {
+  return chalk.hex("#87ff87")(value);
+}
+
+function accentText(value: string): string {
+  return chalk.bold.hex("#af87ff")(value);
+}
+
+function successText(value: string): string {
+  return chalk.bold.greenBright(value);
+}
+
+function dangerText(value: string): string {
+  return chalk.bold.redBright(value);
+}
+
+function statusTag(status: "created" | "error" | "ok" | "warn"): string {
+  switch (status) {
+    case "created":
+      return chalk.bold.bgMagenta.white("[created]");
+    case "error":
+      return chalk.bold.bgRed.white("[error]");
+    case "ok":
+      return chalk.bold.bgGreen.black("[ok]");
+    case "warn":
+      return chalk.bold.bgYellow.black("[warn]");
+  }
 }
 
 function indentMultiline(value: string, indentation: string): string {
