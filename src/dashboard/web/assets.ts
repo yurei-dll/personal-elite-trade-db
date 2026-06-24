@@ -258,12 +258,16 @@ export const ROUTE_PLANNER_SCRIPT = `
     camera: undefined,
     enabled: false,
     group: undefined,
+    hoveredSystem: undefined,
     isDragging: false,
     lastPointer: { x: 0, y: 0 },
     points: undefined,
     raycaster: undefined,
+    referenceSystem: undefined,
     renderer: undefined,
     scene: undefined,
+    searchResults: [],
+    searchToken: 0,
     systems: [],
     three: undefined,
   };
@@ -308,6 +312,55 @@ export const ROUTE_PLANNER_SCRIPT = `
     }
 
     selected.textContent = system.name + " | " + formatNumber(system.distance) + " ly from reference";
+  }
+
+  function setReferenceSystem(system) {
+    state.referenceSystem = system;
+
+    const reference = select("[data-route-reference]");
+    const xInput = select("[data-route-origin-x]");
+    const yInput = select("[data-route-origin-y]");
+    const zInput = select("[data-route-origin-z]");
+
+    if (xInput instanceof HTMLInputElement) {
+      xInput.value = String(system?.x ?? 0);
+    }
+
+    if (yInput instanceof HTMLInputElement) {
+      yInput.value = String(system?.y ?? 0);
+    }
+
+    if (zInput instanceof HTMLInputElement) {
+      zInput.value = String(system?.z ?? 0);
+    }
+
+    if (reference) {
+      reference.textContent = system
+        ? "Reference: " + system.name + " (" + formatNumber(system.x) + ", " + formatNumber(system.y) + ", " + formatNumber(system.z) + ")"
+        : "Reference: galactic origin";
+    }
+  }
+
+  function setHoverSystem(system, event, canvas) {
+    const hover = select("[data-route-hover]");
+
+    state.hoveredSystem = system;
+
+    if (!hover) {
+      return;
+    }
+
+    if (!system || !event || !canvas) {
+      hover.hidden = true;
+      hover.textContent = "";
+      return;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    hover.hidden = false;
+    hover.textContent = system.name;
+    hover.style.left = Math.round(event.clientX - rect.left) + "px";
+    hover.style.top = Math.round(event.clientY - rect.top) + "px";
   }
 
   function activateTab(tabName) {
@@ -373,8 +426,8 @@ export const ROUTE_PLANNER_SCRIPT = `
     raycaster.params.Points.threshold = 4;
     scene.background = new three.Color(0x090c12);
     scene.add(group);
-    scene.add(new three.AxesHelper(70));
-    scene.add(new three.GridHelper(180, 12, 0x263142, 0x182033));
+    group.add(new three.AxesHelper(70));
+    group.add(new three.GridHelper(180, 12, 0x263142, 0x182033));
     camera.position.set(0, 80, 220);
     camera.lookAt(0, 0, 0);
 
@@ -390,7 +443,12 @@ export const ROUTE_PLANNER_SCRIPT = `
       canvas.setPointerCapture(event.pointerId);
     });
     canvas.addEventListener("pointermove", (event) => {
-      if (!state.isDragging || !state.group) {
+      if (!state.group) {
+        return;
+      }
+
+      if (!state.isDragging) {
+        updateHoverAt(event, canvas);
         return;
       }
 
@@ -399,6 +457,7 @@ export const ROUTE_PLANNER_SCRIPT = `
       state.lastPointer = { x: event.clientX, y: event.clientY };
       state.group.rotation.y += deltaX * 0.007;
       state.group.rotation.x += deltaY * 0.007;
+      updateHoverAt(event, canvas);
     });
     canvas.addEventListener("pointerup", (event) => {
       state.isDragging = false;
@@ -413,6 +472,7 @@ export const ROUTE_PLANNER_SCRIPT = `
 
       state.camera.position.z = Math.max(35, Math.min(1200, state.camera.position.z + event.deltaY * 0.35));
     }, { passive: false });
+    canvas.addEventListener("pointerleave", () => setHoverSystem(undefined));
     canvas.addEventListener("click", (event) => selectSystemAt(event, canvas));
     window.addEventListener("resize", resizeRoutePlanner);
     resizeRoutePlanner();
@@ -504,8 +564,20 @@ export const ROUTE_PLANNER_SCRIPT = `
   }
 
   function selectSystemAt(event, canvas) {
+    const system = readSystemAt(event, canvas);
+
+    if (system) {
+      setSelectedSystem(system);
+    }
+  }
+
+  function updateHoverAt(event, canvas) {
+    setHoverSystem(readSystemAt(event, canvas), event, canvas);
+  }
+
+  function readSystemAt(event, canvas) {
     if (!state.camera || !state.points || !state.raycaster || !state.three) {
-      return;
+      return undefined;
     }
 
     const rect = canvas.getBoundingClientRect();
@@ -518,7 +590,71 @@ export const ROUTE_PLANNER_SCRIPT = `
     const index = intersections[0]?.index;
 
     if (typeof index === "number") {
-      setSelectedSystem(state.systems[index]);
+      return state.systems[index];
+    }
+
+    return undefined;
+  }
+
+  async function searchReferenceSystems(query) {
+    const results = select("[data-route-reference-results]");
+    const token = state.searchToken + 1;
+
+    state.searchToken = token;
+
+    if (!(results instanceof HTMLDataListElement)) {
+      return;
+    }
+
+    if (!query.trim()) {
+      state.searchResults = [];
+      results.replaceChildren();
+      return;
+    }
+
+    const params = new URLSearchParams({ q: query.trim() });
+    const response = await window.fetch("/dashboard/data/route-planner/system-search?" + params.toString(), {
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (token !== state.searchToken || !response.ok) {
+      return;
+    }
+
+    const result = await response.json();
+    state.searchResults = Array.isArray(result.systems) ? result.systems : [];
+    results.replaceChildren(...state.searchResults.map((system) => {
+      const option = document.createElement("option");
+      option.value = system.name;
+      option.label = system.name + " (" + formatNumber(system.x) + ", " + formatNumber(system.y) + ", " + formatNumber(system.z) + ")";
+      return option;
+    }));
+  }
+
+  function applyReferenceSearch() {
+    const input = select("[data-route-reference-search]");
+
+    if (!(input instanceof HTMLInputElement)) {
+      return;
+    }
+
+    const query = input.value.trim().toLowerCase();
+    const match = state.searchResults.find((system) => system.name.toLowerCase() === query)
+      ?? state.searchResults[0];
+
+    if (!match) {
+      setStatus("Search for a reference system first.");
+      return;
+    }
+
+    input.value = match.name;
+    setReferenceSystem(match);
+    setStatus("Reference set to " + match.name + ".");
+
+    if (state.enabled) {
+      loadSystems().catch((error) => setStatus(error instanceof Error ? error.message : String(error)));
     }
   }
 
@@ -559,6 +695,9 @@ export const ROUTE_PLANNER_SCRIPT = `
 
     const enableButton = select("[data-route-enable]");
     const loadButton = select("[data-route-load]");
+    const referenceInput = select("[data-route-reference-search]");
+    const setReferenceButton = select("[data-route-set-reference]");
+    let referenceSearchTimer = 0;
 
     if (enableButton instanceof HTMLButtonElement) {
       enableButton.addEventListener("click", () => {
@@ -570,6 +709,20 @@ export const ROUTE_PLANNER_SCRIPT = `
       loadButton.addEventListener("click", () => {
         loadSystems().catch((error) => setStatus(error instanceof Error ? error.message : String(error)));
       });
+    }
+
+    if (referenceInput instanceof HTMLInputElement) {
+      referenceInput.addEventListener("input", () => {
+        window.clearTimeout(referenceSearchTimer);
+        referenceSearchTimer = window.setTimeout(() => {
+          searchReferenceSystems(referenceInput.value).catch((error) => setStatus(error instanceof Error ? error.message : String(error)));
+        }, 180);
+      });
+      referenceInput.addEventListener("change", applyReferenceSearch);
+    }
+
+    if (setReferenceButton instanceof HTMLButtonElement) {
+      setReferenceButton.addEventListener("click", applyReferenceSearch);
     }
   });
 })();

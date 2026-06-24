@@ -185,25 +185,24 @@ function renderRoutePlannerSection(): string {
                   <option value="500">500 systems</option>
                 </select>
               </label>
-              <label>
-                <span>Reference X</span>
-                <input type="number" step="0.01" value="0" data-route-origin-x>
-              </label>
-              <label>
-                <span>Reference Y</span>
-                <input type="number" step="0.01" value="0" data-route-origin-y>
-              </label>
-              <label>
-                <span>Reference Z</span>
-                <input type="number" step="0.01" value="0" data-route-origin-z>
+              <label class="wide-field">
+                <span>Reference system</span>
+                <input type="search" list="route-reference-results" placeholder="Search systems..." autocomplete="off" data-route-reference-search>
+                <datalist id="route-reference-results" data-route-reference-results></datalist>
               </label>
             </div>
+            <input type="hidden" value="0" data-route-origin-x>
+            <input type="hidden" value="0" data-route-origin-y>
+            <input type="hidden" value="0" data-route-origin-z>
+            <button type="button" class="secondary" data-route-set-reference>Set reference</button>
+            <p class="route-reference" data-route-reference>Reference: galactic origin</p>
             <button type="button" class="secondary" data-route-load disabled>Load nearest systems</button>
             <p class="muted" data-route-status>3D map disabled. No systems loaded.</p>
             <p class="route-selected" data-route-selected>No system selected.</p>
           </aside>
           <div class="route-map-frame">
             <canvas data-route-canvas hidden aria-label="3D view of nearby systems"></canvas>
+            <div class="route-hover-label" data-route-hover hidden></div>
             <div class="route-map-placeholder">3D map is disabled</div>
           </div>
         </div>
@@ -517,6 +516,10 @@ function renderDocument(options: {
         gap: 0.75rem;
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
+      .wide-field {
+        grid-column: 1 / -1;
+      }
+      .route-reference,
       .route-selected {
         background: var(--panel-strong);
         border: 1px solid var(--line);
@@ -537,7 +540,7 @@ function renderDocument(options: {
         height: 28rem;
         width: 100%;
       }
-      canvas[data-route-canvas]:not([hidden]) + .route-map-placeholder {
+      canvas[data-route-canvas]:not([hidden]) ~ .route-map-placeholder {
         display: none;
       }
       .route-map-placeholder {
@@ -546,6 +549,22 @@ function renderDocument(options: {
         inset: 0;
         place-items: center;
         position: absolute;
+      }
+      .route-hover-label {
+        background: rgba(8, 9, 13, 0.88);
+        border: 1px solid rgba(72, 215, 255, 0.5);
+        border-radius: 8px;
+        color: var(--text);
+        font-size: 0.82rem;
+        left: 0;
+        max-width: min(18rem, calc(100% - 2rem));
+        padding: 0.35rem 0.5rem;
+        pointer-events: none;
+        position: absolute;
+        top: 0;
+        transform: translate(0.75rem, 0.75rem);
+        white-space: nowrap;
+        z-index: 2;
       }
       .pill, .status {
         border-radius: 999px;

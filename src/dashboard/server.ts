@@ -78,6 +78,14 @@ interface RoutePlannerSystemRow {
   readonly z: string | number;
 }
 
+interface RoutePlannerSearchSystemRow {
+  readonly id: string | number;
+  readonly name: string;
+  readonly x: string | number;
+  readonly y: string | number;
+  readonly z: string | number;
+}
+
 export async function startDashboardServer(
   options: DashboardServerOptions,
 ): Promise<DashboardServerHandle> {
@@ -273,6 +281,51 @@ export async function startDashboardServer(
     });
   });
 
+  app.get("/dashboard/data/route-planner/system-search", async (context) => {
+    const session = readSession(context.req.header("Cookie"), sessionSecret);
+
+    if (!session) {
+      return context.json({ error: "Unauthorized" }, 401);
+    }
+
+    const query = readRoutePlannerSearchQuery(context.req.query("q"));
+
+    if (!query) {
+      return context.json({ systems: [] });
+    }
+
+    const result = await options.database.query<RoutePlannerSearchSystemRow>(
+      `
+        SELECT
+          id::text,
+          name,
+          x,
+          y,
+          z
+        FROM systems
+        WHERE name ILIKE $1
+        ORDER BY
+          CASE
+            WHEN name ILIKE $2 THEN 0
+            ELSE 1
+          END,
+          name ASC
+        LIMIT 12
+      `,
+      [`%${query}%`, `${query}%`],
+    );
+
+    return context.json({
+      systems: result.rows.map((row) => ({
+        id: String(row.id),
+        name: row.name,
+        x: readOptionalNumber(row.x) ?? 0,
+        y: readOptionalNumber(row.y) ?? 0,
+        z: readOptionalNumber(row.z) ?? 0,
+      })),
+    });
+  });
+
   app.post("/dashboard/admin/elevate", async (context) => {
     const session = readSession(context.req.header("Cookie"), sessionSecret);
 
@@ -373,6 +426,10 @@ function readRoutePlannerLimit(value: string | undefined): number {
   }
 
   return Math.max(1, Math.min(parsedLimit, 500));
+}
+
+function readRoutePlannerSearchQuery(value: string | undefined): string {
+  return value?.trim().slice(0, 80) ?? "";
 }
 
 async function readDashboardStats(
