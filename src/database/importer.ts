@@ -7,6 +7,7 @@ import type { DatabaseManager } from "./manager";
 
 const DEFAULT_IMPORT_WORKSPACE = "import";
 const DEFAULT_SYSTEMS_IMPORT_FILE = "systemsWithCoordinates7days.json.gz";
+const DEFAULT_STATIONS_IMPORT_FILE = "stations.json.gz";
 const DEFAULT_BATCH_SIZE = 50;
 
 export interface SystemsImportOptions {
@@ -21,6 +22,22 @@ export interface SystemsImportResult {
   readonly filePath: string;
   readonly systemsImported: number;
   readonly systemsSkipped: number;
+  readonly workspacePath: string;
+}
+
+export interface StationsImportOptions {
+  readonly batchSize?: number;
+  readonly filePath?: string;
+  readonly logger?: Pick<Console, "log" | "warn">;
+  readonly workspacePath?: string;
+}
+
+export interface StationsImportResult {
+  readonly batchesPatched: number;
+  readonly filePath: string;
+  readonly stationsImported: number;
+  readonly stationsSkipped: number;
+  readonly stationsWithoutImportedSystems: number;
   readonly workspacePath: string;
 }
 
@@ -44,6 +61,38 @@ interface RawCoordinates {
   readonly x?: unknown;
   readonly y?: unknown;
   readonly z?: unknown;
+}
+
+interface ImportedStation {
+  readonly distanceToArrival: number | null;
+  readonly hasMarket: boolean;
+  readonly id: number;
+  readonly isPlanetary: boolean | null;
+  readonly maxLandingPadSize: string | null;
+  readonly name: string;
+  readonly systemId: number;
+  readonly type: string | null;
+  readonly updatedAt: string;
+}
+
+interface RawImportedStation {
+  readonly distanceToArrival?: unknown;
+  readonly haveMarket?: unknown;
+  readonly id?: unknown;
+  readonly isPlanetary?: unknown;
+  readonly marketId?: unknown;
+  readonly maxLandingPadSize?: unknown;
+  readonly name?: unknown;
+  readonly systemId?: unknown;
+  readonly type?: unknown;
+  readonly updateTime?: unknown;
+}
+
+interface RawStationUpdateTime {
+  readonly information?: unknown;
+  readonly market?: unknown;
+  readonly outfitting?: unknown;
+  readonly shipyard?: unknown;
 }
 
 export async function importSystems(
@@ -98,6 +147,63 @@ export async function importSystems(
     filePath,
     systemsImported,
     systemsSkipped,
+    workspacePath,
+  };
+}
+
+export async function importStations(
+  database: DatabaseManager,
+  options: StationsImportOptions = {},
+): Promise<StationsImportResult> {
+  const logger = options.logger ?? console;
+  const workspacePath = path.resolve(options.workspacePath ?? DEFAULT_IMPORT_WORKSPACE);
+  const filePath = path.resolve(
+    options.filePath ?? path.join(workspacePath, DEFAULT_STATIONS_IMPORT_FILE),
+  );
+  const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
+  const batch: ImportedStation[] = [];
+  let batchesPatched = 0;
+  let stationsImported = 0;
+  let stationsParsed = 0;
+  let stationsSkipped = 0;
+
+  if (!Number.isInteger(batchSize) || batchSize < 1) {
+    throw new Error("Import batch size must be a positive integer.");
+  }
+
+  await mkdir(workspacePath, { recursive: true });
+  logger.log(`Import workspace ready at ${workspacePath}`);
+  logger.log(`Importing stations from ${filePath}`);
+
+  for await (const candidate of streamTopLevelJsonObjects(filePath)) {
+    const station = parseImportedStation(candidate);
+
+    if (!station) {
+      stationsSkipped += 1;
+      continue;
+    }
+
+    stationsParsed += 1;
+    batch.push(station);
+
+    if (batch.length >= batchSize) {
+      stationsImported += await patchStations(database, batch);
+      batchesPatched += 1;
+      batch.length = 0;
+    }
+  }
+
+  if (batch.length > 0) {
+    stationsImported += await patchStations(database, batch);
+    batchesPatched += 1;
+  }
+
+  return {
+    batchesPatched,
+    filePath,
+    stationsImported,
+    stationsSkipped,
+    stationsWithoutImportedSystems: stationsParsed - stationsImported,
     workspacePath,
   };
 }
@@ -233,6 +339,57 @@ function parseImportedSystem(candidate: string): ImportedSystem | undefined {
   };
 }
 
+function parseImportedStation(candidate: string): ImportedStation | undefined {
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(candidate);
+  } catch {
+    return undefined;
+  }
+
+  if (!isPlainObject(parsed)) {
+    return undefined;
+  }
+
+  const rawStation = parsed as RawImportedStation;
+  const id = readNumber(rawStation.marketId) ?? readNumber(rawStation.id);
+  const systemId = readNumber(rawStation.systemId);
+  const name = readString(rawStation.name);
+  const updatedAt = readStationUpdatedAt(rawStation.updateTime);
+
+  if (id === undefined || systemId === undefined || !name || !updatedAt) {
+    return undefined;
+  }
+
+  return {
+    distanceToArrival: readNumberOrNull(rawStation.distanceToArrival),
+    hasMarket: readBoolean(rawStation.haveMarket) ?? false,
+    id,
+    isPlanetary: readBooleanOrNull(rawStation.isPlanetary),
+    maxLandingPadSize: readStringOrNull(rawStation.maxLandingPadSize),
+    name,
+    systemId,
+    type: readStringOrNull(rawStation.type),
+    updatedAt,
+  };
+}
+
+function readStationUpdatedAt(value: unknown): string | undefined {
+  if (!isPlainObject(value)) {
+    return undefined;
+  }
+
+  const updateTime = value as RawStationUpdateTime;
+
+  return (
+    readDate(updateTime.information) ??
+    readDate(updateTime.market) ??
+    readDate(updateTime.shipyard) ??
+    readDate(updateTime.outfitting)
+  );
+}
+
 async function patchSystems(
   database: DatabaseManager,
   systems: readonly ImportedSystem[],
@@ -268,6 +425,87 @@ async function patchSystems(
   );
 }
 
+async function patchStations(
+  database: DatabaseManager,
+  stations: readonly ImportedStation[],
+): Promise<number> {
+  const result = await database.query(
+    `
+      WITH patch_rows AS (
+        SELECT *
+        FROM unnest(
+          $1::bigint[],
+          $2::bigint[],
+          $3::text[],
+          $4::text[],
+          $5::double precision[],
+          $6::text[],
+          $7::boolean[],
+          $8::boolean[],
+          $9::timestamp with time zone[]
+        ) AS patch(
+          id,
+          system_id,
+          name,
+          type,
+          distance_to_arrival,
+          max_landing_pad_size,
+          has_market,
+          is_planetary,
+          updated_at
+        )
+      )
+      INSERT INTO stations (
+        id,
+        system_id,
+        name,
+        type,
+        distance_to_arrival,
+        max_landing_pad_size,
+        has_market,
+        is_planetary,
+        updated_at
+      )
+      SELECT
+        patch.id,
+        patch.system_id,
+        patch.name,
+        patch.type,
+        patch.distance_to_arrival,
+        patch.max_landing_pad_size,
+        patch.has_market,
+        patch.is_planetary,
+        patch.updated_at
+      FROM patch_rows patch
+      JOIN systems
+        ON systems.id = patch.system_id
+      ON CONFLICT (id) DO UPDATE
+      SET
+        system_id = EXCLUDED.system_id,
+        name = EXCLUDED.name,
+        type = EXCLUDED.type,
+        distance_to_arrival = EXCLUDED.distance_to_arrival,
+        max_landing_pad_size = EXCLUDED.max_landing_pad_size,
+        has_market = EXCLUDED.has_market,
+        is_planetary = EXCLUDED.is_planetary,
+        updated_at = EXCLUDED.updated_at
+    `,
+    [
+      stations.map((station) => station.id),
+      stations.map((station) => station.systemId),
+      stations.map((station) => station.name),
+      stations.map((station) => station.type),
+      stations.map((station) => station.distanceToArrival),
+      stations.map((station) => station.maxLandingPadSize),
+      stations.map((station) => station.hasMarket),
+      stations.map((station) => station.isPlanetary),
+      stations.map((station) => station.updatedAt),
+    ],
+  );
+
+  return result.rowCount ?? 0;
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -278,6 +516,22 @@ function readString(value: unknown): string | undefined {
 
 function readNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readNumberOrNull(value: unknown): number | null {
+  return readNumber(value) ?? null;
+}
+
+function readBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function readBooleanOrNull(value: unknown): boolean | null {
+  return readBoolean(value) ?? null;
+}
+
+function readStringOrNull(value: unknown): string | null {
+  return readString(value) ?? null;
 }
 
 function readDate(value: unknown): string | undefined {
