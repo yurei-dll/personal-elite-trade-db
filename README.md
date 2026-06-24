@@ -158,18 +158,18 @@ Source files live in `src/`. Build output is written to `dist/` and should not b
 ### Roadmap
 
 * [x] Basic CLI entrypoint
-* [ ] Database manager
+* [x] Database manager
   * [x] Automated setup
     * [x] Import system data from EDSM snapshots
   * [ ] Automatic maintenance
     * [ ] Track stale data
-  * [ ] Live-patch EDDN ingestion
+  * [x] Live-patch EDDN ingestion
     * [x] Connect to EDDN stream
     * [x] Parse commodity market messages
     * [x] Slowly build db patch in-memory
-    * [ ] Store station/system/commodity data
+    * [x] Store station/system/commodity data
 * [ ] Dashboard
-  * [ ] Basic authentication
+  * [x] Basic authentication
     * [x] Password storage with `scrypt`
     * [x] Credential manager back-end
       * [x] Read-only access by default
@@ -177,7 +177,7 @@ Source files live in `src/`. Build output is written to `dist/` and should not b
     * [x] Basic rate-limiting for incorrect login attempts
   * [x] Database stats page
   * [x] Server stats page
-  * [ ] Route planning
+  * [x] Route planning
   * [ ] Store preferences in browser
 
 ### Internal structures
