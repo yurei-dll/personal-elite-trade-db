@@ -72,7 +72,10 @@ export function renderDashboardPage(options: {
   });
 }
 
-export function renderSummarySection(stats: DashboardStats): string {
+export function renderSummarySection(
+  stats: DashboardStats,
+  refreshSeconds = "30",
+): string {
   return `
     <section id="summary" class="section wide">
       <div class="section-header">
@@ -80,7 +83,7 @@ export function renderSummarySection(stats: DashboardStats): string {
           <p class="eyebrow">Database</p>
           <h2>Trade Data</h2>
         </div>
-        <span class="pill" data-refresh-label>auto-refresh 30s</span>
+        <span class="pill" data-refresh-label>${formatRefreshLabel(refreshSeconds)}</span>
       </div>
       <div class="metric-grid">
         ${renderMetric("Systems", stats.systems)}
@@ -97,6 +100,12 @@ export function renderSummarySection(stats: DashboardStats): string {
       </div>
     </section>
   `;
+}
+
+function formatRefreshLabel(value: string): string {
+  return value === "0"
+    ? "manual refresh"
+    : `auto-refresh ${escapeHtml(value)}s`;
 }
 
 function renderHealthSection(health: DashboardHealth): string {

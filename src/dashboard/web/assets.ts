@@ -48,7 +48,8 @@ export const DASHBOARD_SCRIPT = `
       return;
     }
 
-    window.htmx.ajax("GET", "/dashboard/partials/summary", {
+    const refreshSeconds = encodeURIComponent(readActiveRefreshSeconds());
+    window.htmx.ajax("GET", \`/dashboard/partials/summary?refreshSeconds=\${refreshSeconds}\`, {
       swap: "outerHTML",
       target: "#summary",
     });

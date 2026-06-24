@@ -32,6 +32,7 @@ const SESSION_MAX_AGE_SECONDS = 60 * 60 * 12;
 const ADMIN_MAX_AGE_SECONDS = 60 * 10;
 const LOGIN_RATE_LIMIT_WINDOW_MS = 60_000;
 const LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 8;
+const DASHBOARD_REFRESH_SECONDS = new Set(["0", "5", "15", "30", "60", "300"]);
 
 export interface DashboardServerOptions {
   readonly config: AppConfig;
@@ -168,7 +169,9 @@ export async function startDashboardServer(
     }
 
     const stats = await readDashboardStats(options.database, options.inboundMessages);
-    return context.html(renderSummarySection(stats));
+    return context.html(
+      renderSummarySection(stats, readRefreshSeconds(context.req.query("refreshSeconds"))),
+    );
   });
 
   app.get("/dashboard/data/inbound-messages", (context) => {
@@ -263,6 +266,10 @@ function readSessionSecret(value: string | undefined): Buffer {
   }
 
   return secret;
+}
+
+function readRefreshSeconds(value: string | undefined): string {
+  return value && DASHBOARD_REFRESH_SECONDS.has(value) ? value : "30";
 }
 
 async function readDashboardStats(
