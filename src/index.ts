@@ -81,7 +81,18 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
     }
 
     if (parsedArgs.importSystems) {
-      await database.connect();
+      if (!parsedArgs.initializeDatabase) {
+        const result = await database.initialize();
+
+        if (result.databaseCreated) {
+          console.log(
+            `${statusTag("created")} Database did not exist; created ${valueText(result.databaseName)}.`,
+          );
+        }
+
+        console.log(`${statusTag("ok")} Database initialized.`);
+      }
+
       const result = await importSystems(database, {
         filePath: parsedArgs.importFilePath,
       });

@@ -135,6 +135,7 @@ Source files live in `src/`. Build output is written to `dist/` and should not b
 * [x] Basic CLI entrypoint
 * [ ] Database manager
   * [x] Automated setup
+    * [x] Import system data from EDSM snapshots
   * [ ] Automatic maintenance
     * [ ] Track stale data
   * [ ] Live-patch EDDN ingestion

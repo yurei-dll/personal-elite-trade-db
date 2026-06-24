@@ -733,7 +733,7 @@ async function collectDatabaseSetupProblems(client: PoolClient): Promise<string[
       SELECT
         tc.table_name,
         tc.constraint_type,
-        array_agg(kcu.column_name ORDER BY kcu.ordinal_position) AS columns
+        array_agg(kcu.column_name::text ORDER BY kcu.ordinal_position)::text[] AS columns
       FROM information_schema.table_constraints tc
       JOIN information_schema.key_column_usage kcu
         ON kcu.constraint_schema = tc.constraint_schema
