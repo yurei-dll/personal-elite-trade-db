@@ -6,7 +6,7 @@ import type {
 import { parseMarketSnapshotRows } from "./parser";
 import type { MarketSnapshot } from "./listener";
 
-const DEFAULT_EDDN_PATCH_BATCH_SIZE = 50;
+const DEFAULT_EDDN_PATCH_BATCH_SIZE = 500;
 
 export interface EddnMarketPatchBufferOptions {
   readonly batchSize?: number;
@@ -88,11 +88,7 @@ export class EddnMarketPatchBuffer {
   private drainReadyPatches(): DatabasePatch[] {
     const patches: DatabasePatch[] = [];
 
-    while (
-      this.commodities.size >= this.batchSize ||
-      this.stations.size >= this.batchSize ||
-      this.stationCommodities.size >= this.batchSize
-    ) {
+    while (this.stationCommodities.size >= this.batchSize) {
       patches.push(this.createPatch());
     }
 
@@ -101,8 +97,8 @@ export class EddnMarketPatchBuffer {
 
   private createPatch(): DatabasePatch {
     const rows: EddnMarketPatchRows = {
-      commodities: takeRows(this.commodities, this.batchSize),
-      stations: takeRows(this.stations, this.batchSize),
+      commodities: takeAllRows(this.commodities),
+      stations: takeAllRows(this.stations),
       stationCommodities: takeRows(this.stationCommodities, this.batchSize),
     };
     const commodityCount = rows.commodities.length;
@@ -305,6 +301,12 @@ function takeRows<Row>(
     }
   }
 
+  return takenRows;
+}
+
+function takeAllRows<Row>(rows: Map<string | number, Row>): Row[] {
+  const takenRows = [...rows.values()];
+  rows.clear();
   return takenRows;
 }
 
