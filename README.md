@@ -107,6 +107,15 @@ Check the database connection, account privileges, schema, and debug info:
 npm run dev -- --doctor
 ```
 
+Import the default gzipped systems and stations snapshots from `import/`:
+
+```bash
+npm run dev -- --import-systems
+npm run dev -- --import-stations
+```
+
+You can pass an explicit archive path after either flag.
+
 Destroy the configured PostgreSQL database after verifying the admin password
 hash stored in `.env`:
 

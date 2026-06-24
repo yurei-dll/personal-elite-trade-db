@@ -11,6 +11,7 @@ import type { DatabaseDoctorReport, DatabaseDoctorStatus } from "./database";
 import {
   applyDatabasePatches,
   createDatabaseManager,
+  importStations,
   importSystems,
 } from "./database";
 import {
@@ -50,7 +51,10 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
 
   if (parsedArgs.listenEddn && parsedArgs.serveDashboard) {
     const config = loadConfig();
-    await runDashboardWithEddnWriter(config, parsedArgs.dashboardPort);
+    await runDashboardWithEddn(config, {
+      enableWrite: parsedArgs.enableWrite,
+      port: parsedArgs.dashboardPort,
+    });
     return;
   }
 
@@ -109,7 +113,7 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
       return;
     }
 
-    if (parsedArgs.importSystems) {
+    if (parsedArgs.importSystems || parsedArgs.importStations) {
       if (!parsedArgs.initializeDatabase) {
         const result = await database.initialize();
 
@@ -121,9 +125,11 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
 
         console.log(`${statusTag("ok")} Database initialized.`);
       }
+    }
 
+    if (parsedArgs.importSystems) {
       const result = await importSystems(database, {
-        filePath: parsedArgs.importFilePath,
+        filePath: parsedArgs.importSystemsFilePath,
       });
 
       console.log(
@@ -139,7 +145,37 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
           )} malformed system records.`,
         );
       }
+    }
 
+    if (parsedArgs.importStations) {
+      const result = await importStations(database, {
+        filePath: parsedArgs.importStationsFilePath,
+      });
+
+      console.log(
+        `${statusTag("ok")} Imported ${valueText(
+          String(result.stationsImported),
+        )} stations across ${valueText(String(result.batchesPatched))} batches.`,
+      );
+
+      if (result.stationsSkipped > 0) {
+        console.log(
+          `${statusTag("warn")} Skipped ${valueText(
+            String(result.stationsSkipped),
+          )} malformed station records.`,
+        );
+      }
+
+      if (result.stationsWithoutImportedSystems > 0) {
+        console.log(
+          `${statusTag("warn")} Skipped ${valueText(
+            String(result.stationsWithoutImportedSystems),
+          )} stations whose systems are not imported yet.`,
+        );
+      }
+    }
+
+    if (parsedArgs.importSystems || parsedArgs.importStations) {
       return;
     }
 
@@ -167,8 +203,10 @@ interface ParsedArgs {
   readonly enableWrite: boolean;
   readonly envValues: ManagedEnvUpdates;
   readonly hasPasswordUpdates: boolean;
-  readonly importFilePath: string | undefined;
+  readonly importStations: boolean;
+  readonly importStationsFilePath: string | undefined;
   readonly importSystems: boolean;
+  readonly importSystemsFilePath: string | undefined;
   readonly initializeDatabase: boolean;
   readonly listenEddn: boolean;
   readonly runDoctor: boolean;
@@ -184,7 +222,9 @@ function parseArgs(args: readonly string[]): ParsedArgs {
   let destroyPassword: string | undefined;
   let dashboardPort: number | undefined;
   let enableWrite = false;
-  let importFilePath: string | undefined;
+  let importStationsFilePath: string | undefined;
+  let importStationsFlag = false;
+  let importSystemsFilePath: string | undefined;
   let importSystemsFlag = false;
   let initializeDatabase = false;
   let listenEddn = false;
@@ -206,8 +246,10 @@ function parseArgs(args: readonly string[]): ParsedArgs {
         enableWrite: false,
         envValues,
         hasPasswordUpdates: false,
-        importFilePath: undefined,
+        importStations: false,
+        importStationsFilePath: undefined,
         importSystems: false,
+        importSystemsFilePath: undefined,
         initializeDatabase: false,
         listenEddn: false,
         runDoctor: false,
@@ -266,13 +308,26 @@ function parseArgs(args: readonly string[]): ParsedArgs {
       continue;
     }
 
-    if (arg === "--import") {
+    if (arg === "--import-systems") {
       importSystemsFlag = true;
 
       const nextArg = args[index + 1];
 
       if (nextArg && !nextArg.startsWith("--")) {
-        importFilePath = nextArg;
+        importSystemsFilePath = nextArg;
+        index += 1;
+      }
+
+      continue;
+    }
+
+    if (arg === "--import-stations") {
+      importStationsFlag = true;
+
+      const nextArg = args[index + 1];
+
+      if (nextArg && !nextArg.startsWith("--")) {
+        importStationsFilePath = nextArg;
         index += 1;
       }
 
@@ -345,12 +400,12 @@ function parseArgs(args: readonly string[]): ParsedArgs {
   if (
     serveDashboard &&
     (destroyDatabase ||
+      importStationsFlag ||
       importSystemsFlag ||
       initializeDatabase ||
-      runDoctor ||
-      (listenEddn && !enableWrite))
+      runDoctor)
   ) {
-    throw new Error("--dashboard can only be combined with EDDN when --eddn --enable-write are both set.");
+    throw new Error("--dashboard can only be combined with --eddn.");
   }
 
   if (destroyPassword !== undefined && !destroyDatabase) {
@@ -368,8 +423,10 @@ function parseArgs(args: readonly string[]): ParsedArgs {
     enableWrite,
     envValues,
     hasPasswordUpdates: updatedLabels.length > 0,
-    importFilePath,
+    importStations: importStationsFlag,
+    importStationsFilePath,
     importSystems: importSystemsFlag,
+    importSystemsFilePath,
     initializeDatabase,
     listenEddn,
     runDoctor,
@@ -433,9 +490,14 @@ async function runDashboard(
   });
 }
 
-async function runDashboardWithEddnWriter(
+interface DashboardEddnRunOptions {
+  readonly enableWrite: boolean;
+  readonly port: number | undefined;
+}
+
+async function runDashboardWithEddn(
   config: AppConfig,
-  port: number | undefined,
+  options: DashboardEddnRunOptions,
 ): Promise<void> {
   if (!config.dashboardPasswordHash) {
     throw new Error("DASHBOARD_PASSWORD_HASH is not set in .env.");
@@ -448,13 +510,22 @@ async function runDashboardWithEddnWriter(
   }
 
   const dashboardDatabase = createDatabaseManager(sessionSecret.config);
-  const eddnDatabase = createDatabaseManager(sessionSecret.config);
+  const eddnDatabase = options.enableWrite
+    ? createDatabaseManager(sessionSecret.config)
+    : undefined;
   const inboundMessages = createInboundMessageTracker();
-  const patchBuffer = new EddnMarketPatchBuffer();
+  const patchBuffer = options.enableWrite
+    ? new EddnMarketPatchBuffer()
+    : undefined;
   const shownWarnings = new Set<string>();
   const listener = createEddnListener({
     onMarketSnapshot: async (snapshot) => {
       inboundMessages.recordMessage();
+
+      if (!patchBuffer || !eddnDatabase) {
+        return;
+      }
+
       const queued = patchBuffer.queueSnapshot(snapshot);
 
       for (const warning of queued.warnings) {
@@ -479,12 +550,14 @@ async function runDashboardWithEddnWriter(
     },
   });
 
-  const result = await eddnDatabase.initialize();
+  if (eddnDatabase) {
+    const result = await eddnDatabase.initialize();
 
-  if (result.databaseCreated) {
-    console.log(
-      `${statusTag("created")} Database did not exist; created ${valueText(result.databaseName)}.`,
-    );
+    if (result.databaseCreated) {
+      console.log(
+        `${statusTag("created")} Database did not exist; created ${valueText(result.databaseName)}.`,
+      );
+    }
   }
 
   let server: Awaited<ReturnType<typeof startDashboardServer>>;
@@ -494,12 +567,12 @@ async function runDashboardWithEddnWriter(
       config: sessionSecret.config,
       database: dashboardDatabase,
       inboundMessages,
-      port,
+      port: options.port,
     });
   } catch (error) {
     await Promise.allSettled([
       dashboardDatabase.close(),
-      eddnDatabase.close(),
+      eddnDatabase?.close() ?? Promise.resolve(),
     ]);
     throw error;
   }
@@ -510,7 +583,7 @@ async function runDashboardWithEddnWriter(
   let stopPromise: Promise<void> | undefined;
   const stop = (): void => {
     if (!stopPromise) {
-      console.log(`${statusTag("warn")} Stopping dashboard and EDDN writer...`);
+      console.log(`${statusTag("warn")} Stopping dashboard and EDDN listener...`);
     }
 
     void stopAll();
@@ -525,9 +598,9 @@ async function runDashboardWithEddnWriter(
       try {
         await listener.stop();
 
-        const patches = patchBuffer.flush();
+        const patches = patchBuffer?.flush() ?? [];
 
-        if (patches.length > 0) {
+        if (patches.length > 0 && eddnDatabase) {
           await applyDatabasePatches(eddnDatabase, patches);
           inboundMessages.recordPatch();
 
@@ -539,7 +612,7 @@ async function runDashboardWithEddnWriter(
         await Promise.allSettled([
           server.close(),
           dashboardDatabase.close(),
-          eddnDatabase.close(),
+          eddnDatabase?.close() ?? Promise.resolve(),
         ]);
         process.off("SIGINT", stop);
         process.off("SIGTERM", stop);
@@ -556,7 +629,11 @@ async function runDashboardWithEddnWriter(
       `http://${server.host}:${server.port}/dashboard`,
     )}`,
   );
-  console.log(`${statusTag("ok")} EDDN write mode enabled.`);
+  console.log(
+    options.enableWrite
+      ? `${statusTag("ok")} EDDN write mode enabled.`
+      : `${statusTag("ok")} EDDN read-only mode enabled.`,
+  );
 
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
@@ -947,10 +1024,12 @@ Usage:
   npm run dev
   npm run dev -- --doctor
   npm run dev -- --init
-  npm run dev -- --import [systems file]
+  npm run dev -- --import-systems [systems file]
+  npm run dev -- --import-stations [stations file]
   npm run dev -- --destroy-db --password <admin password>
   npm run dev -- --eddn
   npm run dev -- --eddn --enable-write
+  npm run dev -- --dashboard --eddn
   npm run dev -- --dashboard --eddn --enable-write
   npm run dev -- --dashboard [port]
   npm run dev -- --dashboard-user-password <password>
@@ -961,12 +1040,13 @@ Database flags:
   --init                                Create the database schema if needed.
   --destroy-db                          Drop the configured PostgreSQL database.
   --password <password>                 Admin password required by --destroy-db.
-  --import [systems file]               Import gzipped systems JSON from import/.
+  --import-systems [systems file]       Import gzipped systems JSON from import/.
+  --import-stations [stations file]     Import gzipped stations JSON from import/.
 
 EDDN flags:
   --eddn                                Listen for commodity market messages and log them.
   --enable-write                        With --eddn, batch and write market patches to the database.
-                                        Can be combined with --dashboard.
+                                        Optional when combined with --dashboard.
 
 Dashboard flags:
   --dashboard [port]                    Serve the local read-only dashboard.
