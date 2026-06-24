@@ -14,6 +14,7 @@ import {
   importSystems,
 } from "./database";
 import {
+  createInboundMessageTracker,
   hashPassword,
   startDashboardServer,
   verifyPasswordHash,
@@ -448,10 +449,12 @@ async function runDashboardWithEddnWriter(
 
   const dashboardDatabase = createDatabaseManager(sessionSecret.config);
   const eddnDatabase = createDatabaseManager(sessionSecret.config);
+  const inboundMessages = createInboundMessageTracker();
   const patchBuffer = new EddnMarketPatchBuffer();
   const shownWarnings = new Set<string>();
   const listener = createEddnListener({
     onMarketSnapshot: async (snapshot) => {
+      inboundMessages.recordMessage();
       const queued = patchBuffer.queueSnapshot(snapshot);
 
       for (const warning of queued.warnings) {
@@ -468,6 +471,7 @@ async function runDashboardWithEddnWriter(
       }
 
       await applyDatabasePatches(eddnDatabase, queued.patches);
+      inboundMessages.recordPatch();
 
       for (const patch of queued.patches) {
         console.log(`${statusTag("ok")} ${patch.description}`);
@@ -489,6 +493,7 @@ async function runDashboardWithEddnWriter(
     server = await startDashboardServer({
       config: sessionSecret.config,
       database: dashboardDatabase,
+      inboundMessages,
       port,
     });
   } catch (error) {
@@ -524,6 +529,7 @@ async function runDashboardWithEddnWriter(
 
         if (patches.length > 0) {
           await applyDatabasePatches(eddnDatabase, patches);
+          inboundMessages.recordPatch();
 
           for (const patch of patches) {
             console.log(`${statusTag("ok")} ${patch.description}`);

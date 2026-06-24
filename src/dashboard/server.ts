@@ -12,6 +12,7 @@ import {
   createDashboardAuthOptions,
   verifyPasswordHash,
 } from "./index";
+import type { InboundMessageTracker } from "./inbound_messages";
 import { DASHBOARD_SCRIPT, HTMX_SCRIPT } from "./web/assets";
 import {
   renderDashboardPage,
@@ -36,6 +37,7 @@ export interface DashboardServerOptions {
   readonly config: AppConfig;
   readonly database: DatabaseManager;
   readonly host?: string;
+  readonly inboundMessages?: InboundMessageTracker;
   readonly port?: number;
 }
 
@@ -54,7 +56,6 @@ interface DashboardStatsRow {
   readonly commodities: string | number;
   readonly database_size_bytes: string | number;
   readonly latest_collected_at: Date | string | null;
-  readonly latest_received_at: Date | string | null;
   readonly market_rows: string | number;
   readonly stale_market_rows: string | number | null;
   readonly stations: string | number;
@@ -152,7 +153,7 @@ export async function startDashboardServer(
     }
 
     const [stats, health] = await Promise.all([
-      readDashboardStats(options.database),
+      readDashboardStats(options.database, options.inboundMessages),
       readDashboardHealth(options.database),
     ]);
 
@@ -166,8 +167,24 @@ export async function startDashboardServer(
       return context.text("Unauthorized", 401);
     }
 
-    const stats = await readDashboardStats(options.database);
+    const stats = await readDashboardStats(options.database, options.inboundMessages);
     return context.html(renderSummarySection(stats));
+  });
+
+  app.get("/dashboard/data/inbound-messages", (context) => {
+    const session = readSession(context.req.header("Cookie"), sessionSecret);
+
+    if (!session) {
+      return context.json({ error: "Unauthorized" }, 401);
+    }
+
+    return context.json(
+      options.inboundMessages?.readSeries() ?? {
+        points: [],
+        total: 0,
+        windowMinutes: 60,
+      },
+    );
   });
 
   app.post("/dashboard/admin/elevate", async (context) => {
@@ -184,7 +201,7 @@ export async function startDashboardServer(
       : false;
 
     if (!isAuthorized) {
-      const stats = await readDashboardStats(options.database);
+      const stats = await readDashboardStats(options.database, options.inboundMessages);
       const health = await readDashboardHealth(options.database);
 
       return context.html(
@@ -250,7 +267,10 @@ function readSessionSecret(value: string | undefined): Buffer {
 
 async function readDashboardStats(
   database: DatabaseManager,
+  inboundMessages: InboundMessageTracker | undefined,
 ): Promise<DashboardStats> {
+  const activity = inboundMessages?.readActivity();
+
   try {
     const statsResult = await database.query<DashboardStatsRow>(`
       SELECT
@@ -260,7 +280,6 @@ async function readDashboardStats(
         pg_database_size(current_database()) AS database_size_bytes,
         count(*) AS market_rows,
         max(collected_at) AS latest_collected_at,
-        max(received_at) AS latest_received_at,
         count(*) FILTER (WHERE collected_at < now() - interval '7 days') AS stale_market_rows
       FROM station_commodities
     `);
@@ -269,8 +288,9 @@ async function readDashboardStats(
     return {
       commodities: readOptionalNumber(statsRow?.commodities),
       databaseSizeBytes: readOptionalNumber(statsRow?.database_size_bytes),
+      lastPatchAt: activity?.lastPatchAt,
       latestCollectedAt: readOptionalDate(statsRow?.latest_collected_at),
-      latestReceivedAt: readOptionalDate(statsRow?.latest_received_at),
+      latestReceivedAt: activity?.lastReceivedAt,
       marketRows: readOptionalNumber(statsRow?.market_rows),
       staleMarketRows: readOptionalNumber(statsRow?.stale_market_rows),
       stations: readOptionalNumber(statsRow?.stations),
@@ -280,8 +300,9 @@ async function readDashboardStats(
     return {
       commodities: undefined,
       databaseSizeBytes: undefined,
+      lastPatchAt: activity?.lastPatchAt,
       latestCollectedAt: undefined,
-      latestReceivedAt: undefined,
+      latestReceivedAt: activity?.lastReceivedAt,
       marketRows: undefined,
       staleMarketRows: undefined,
       stations: undefined,

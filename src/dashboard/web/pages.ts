@@ -61,6 +61,7 @@ export function renderDashboardPage(options: {
       </header>
       <main class="dashboard-grid">
         ${renderSummarySection(options.stats)}
+        ${renderInboundMessagesSection()}
         ${renderHealthSection(options.health)}
         ${renderAdminSection(options.session, options.adminMessage)}
       </main>
@@ -86,12 +87,13 @@ export function renderSummarySection(stats: DashboardStats): string {
         ${renderMetric("Stations", stats.stations)}
         ${renderMetric("Commodities", stats.commodities)}
         ${renderMetric("Market rows", stats.marketRows)}
+        ${renderMetric("Stale market rows", stats.staleMarketRows)}
         ${renderMetric("Database size", formatBytes(stats.databaseSizeBytes))}
       </div>
       <div class="freshness">
-        <p><span>Latest collected</span>${formatDate(stats.latestCollectedAt)}</p>
-        <p><span>Latest received</span>${formatDate(stats.latestReceivedAt)}</p>
-        <p><span>Stale market rows</span>${formatNumber(stats.staleMarketRows)}</p>
+        <p><span>Last collected</span>${formatDate(stats.latestCollectedAt)}</p>
+        <p><span>Last received</span>${formatDate(stats.latestReceivedAt)}</p>
+        <p><span>Last patch</span>${formatDate(stats.lastPatchAt)}</p>
       </div>
     </section>
   `;
@@ -118,6 +120,24 @@ function renderHealthSection(health: DashboardHealth): string {
       <div class="check-list">
         ${health.checks.map(renderHealthCheck).join("")}
       </div>
+    </section>
+  `;
+}
+
+function renderInboundMessagesSection(): string {
+  return `
+    <section class="section wide">
+      <div class="section-header">
+        <div>
+          <p class="eyebrow">EDDN</p>
+          <h2>Inbound Messages</h2>
+        </div>
+        <span class="pill" data-inbound-total>0 in 60m</span>
+      </div>
+      <div class="chart-shell">
+        <canvas data-inbound-chart height="180" aria-label="Inbound EDDN messages over time"></canvas>
+      </div>
+      <p class="muted" data-inbound-empty>No inbound messages recorded in this dashboard process yet.</p>
     </section>
   `;
 }
@@ -363,6 +383,18 @@ function renderDocument(options: {
         border-left: 3px solid var(--accent);
         color: var(--text);
         padding-left: 0.75rem;
+      }
+      .chart-shell {
+        min-height: 12rem;
+        position: relative;
+      }
+      canvas[data-inbound-chart] {
+        background: #090c12;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        display: block;
+        height: 12rem;
+        width: 100%;
       }
       .pill, .status {
         border-radius: 999px;
