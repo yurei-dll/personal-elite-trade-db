@@ -129,7 +129,7 @@ Source files live in `src/`. Build output is written to `dist/` and should not b
     * [ ] Track stale data
   * [ ] Live-patch EDDN ingestion
     * [x] Connect to EDDN stream
-    * [ ] Parse commodity market messages
+    * [x] Parse commodity market messages
     * [ ] Slowly build db patch in-memory
     * [ ] Store station/system/commodity data
 * [ ] Dashboard
