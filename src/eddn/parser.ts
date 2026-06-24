@@ -118,7 +118,7 @@ export function parseMarketSnapshotRows(
   }
 
   warnings.push(
-    "Commodity market snapshots do not include system id or coordinates, so systems/stations rows require another data source before insertion.",
+    "Commodity market snapshots do not include system id or coordinates, so systems rows require another data source and station rows require a matching imported system before insertion.",
   );
 
   const updatedAt = collectedAt ?? new Date(0).toISOString();

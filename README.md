@@ -154,7 +154,7 @@ Source files live in `src/`. Build output is written to `dist/` and should not b
   * [ ] Live-patch EDDN ingestion
     * [x] Connect to EDDN stream
     * [x] Parse commodity market messages
-    * [ ] Slowly build db patch in-memory
+    * [x] Slowly build db patch in-memory
     * [ ] Store station/system/commodity data
 * [ ] Dashboard
   * [ ] Basic authentication

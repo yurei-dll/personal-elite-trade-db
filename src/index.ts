@@ -4,13 +4,18 @@ import chalk from "chalk";
 import type { AppConfig, ManagedEnvUpdates } from "./config";
 import { loadConfig, saveManagedEnvValues } from "./config";
 import type { DatabaseDoctorReport, DatabaseDoctorStatus } from "./database";
-import { createDatabaseManager, importSystems } from "./database";
+import {
+  applyDatabasePatches,
+  createDatabaseManager,
+  importSystems,
+} from "./database";
 import {
   hashPassword,
   startDashboardServer,
   verifyPasswordHash,
 } from "./dashboard";
 import { createEddnListener } from "./eddn/listener";
+import { EddnMarketPatchBuffer } from "./eddn/patcher";
 
 const DASHBOARD_PASSWORD_FLAGS = new Set([
   "--dashboard-user-password",
@@ -38,8 +43,18 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
     return;
   }
 
+  if (parsedArgs.listenEddn && parsedArgs.serveDashboard) {
+    const config = loadConfig();
+    await runDashboardWithEddnWriter(config, parsedArgs.dashboardPort);
+    return;
+  }
+
   if (parsedArgs.listenEddn) {
-    await runEddnListener();
+    const config = parsedArgs.enableWrite ? loadConfig() : undefined;
+    await runEddnListener({
+      config,
+      enableWrite: parsedArgs.enableWrite,
+    });
     return;
   }
 
@@ -144,6 +159,7 @@ interface ParsedArgs {
   readonly dashboardPort: number | undefined;
   readonly destroyDatabase: boolean;
   readonly destroyPassword: string | undefined;
+  readonly enableWrite: boolean;
   readonly envValues: ManagedEnvUpdates;
   readonly hasPasswordUpdates: boolean;
   readonly importFilePath: string | undefined;
@@ -162,6 +178,7 @@ function parseArgs(args: readonly string[]): ParsedArgs {
   let destroyDatabase = false;
   let destroyPassword: string | undefined;
   let dashboardPort: number | undefined;
+  let enableWrite = false;
   let importFilePath: string | undefined;
   let importSystemsFlag = false;
   let initializeDatabase = false;
@@ -181,6 +198,7 @@ function parseArgs(args: readonly string[]): ParsedArgs {
         dashboardPort: undefined,
         destroyDatabase: false,
         destroyPassword: undefined,
+        enableWrite: false,
         envValues,
         hasPasswordUpdates: false,
         importFilePath: undefined,
@@ -201,6 +219,11 @@ function parseArgs(args: readonly string[]): ParsedArgs {
 
     if (arg === "--eddn") {
       listenEddn = true;
+      continue;
+    }
+
+    if (arg === "--enable-write") {
+      enableWrite = true;
       continue;
     }
 
@@ -306,6 +329,10 @@ function parseArgs(args: readonly string[]): ParsedArgs {
     throw new Error("Password hash updates cannot be combined with --destroy-db.");
   }
 
+  if (enableWrite && !listenEddn) {
+    throw new Error("--enable-write can only be used with --eddn.");
+  }
+
   if (serveDashboard && updatedLabels.length > 0) {
     throw new Error("Password hash updates cannot be combined with --dashboard.");
   }
@@ -316,9 +343,9 @@ function parseArgs(args: readonly string[]): ParsedArgs {
       importSystemsFlag ||
       initializeDatabase ||
       runDoctor ||
-      listenEddn)
+      (listenEddn && !enableWrite))
   ) {
-    throw new Error("--dashboard cannot be combined with database, import, doctor, or EDDN commands.");
+    throw new Error("--dashboard can only be combined with EDDN when --eddn --enable-write are both set.");
   }
 
   if (destroyPassword !== undefined && !destroyDatabase) {
@@ -333,6 +360,7 @@ function parseArgs(args: readonly string[]): ParsedArgs {
     dashboardPort,
     destroyDatabase,
     destroyPassword,
+    enableWrite,
     envValues,
     hasPasswordUpdates: updatedLabels.length > 0,
     importFilePath,
@@ -394,6 +422,137 @@ async function runDashboard(
   });
 }
 
+async function runDashboardWithEddnWriter(
+  config: AppConfig,
+  port: number | undefined,
+): Promise<void> {
+  if (!config.dashboardPasswordHash) {
+    throw new Error("DASHBOARD_PASSWORD_HASH is not set in .env.");
+  }
+
+  const dashboardDatabase = createDatabaseManager(config);
+  const eddnDatabase = createDatabaseManager(config);
+  const patchBuffer = new EddnMarketPatchBuffer();
+  const shownWarnings = new Set<string>();
+  const listener = createEddnListener({
+    onMarketSnapshot: async (snapshot) => {
+      const queued = patchBuffer.queueSnapshot(snapshot);
+
+      for (const warning of queued.warnings) {
+        if (shownWarnings.has(warning)) {
+          continue;
+        }
+
+        shownWarnings.add(warning);
+        console.warn(`${statusTag("warn")} ${warning}`);
+      }
+
+      if (queued.patches.length === 0) {
+        return;
+      }
+
+      await applyDatabasePatches(eddnDatabase, queued.patches);
+
+      for (const patch of queued.patches) {
+        console.log(`${statusTag("ok")} ${patch.description}`);
+      }
+    },
+  });
+
+  const result = await eddnDatabase.initialize();
+
+  if (result.databaseCreated) {
+    console.log(
+      `${statusTag("created")} Database did not exist; created ${valueText(result.databaseName)}.`,
+    );
+  }
+
+  let server: Awaited<ReturnType<typeof startDashboardServer>>;
+
+  try {
+    server = await startDashboardServer({
+      config,
+      database: dashboardDatabase,
+      port,
+    });
+  } catch (error) {
+    await Promise.allSettled([
+      dashboardDatabase.close(),
+      eddnDatabase.close(),
+    ]);
+    throw error;
+  }
+
+  const listenerPromise = listener.start();
+  let isStopping = false;
+  let resolveStopped: (() => void) | undefined;
+  let stopPromise: Promise<void> | undefined;
+  const stop = (): void => {
+    if (!stopPromise) {
+      console.log(`${statusTag("warn")} Stopping dashboard and EDDN writer...`);
+    }
+
+    void stopAll();
+  };
+  const stopAll = async (): Promise<void> => {
+    if (stopPromise) {
+      return stopPromise;
+    }
+
+    isStopping = true;
+    stopPromise = (async () => {
+      try {
+        await listener.stop();
+
+        const patches = patchBuffer.flush();
+
+        if (patches.length > 0) {
+          await applyDatabasePatches(eddnDatabase, patches);
+
+          for (const patch of patches) {
+            console.log(`${statusTag("ok")} ${patch.description}`);
+          }
+        }
+      } finally {
+        await Promise.allSettled([
+          server.close(),
+          dashboardDatabase.close(),
+          eddnDatabase.close(),
+        ]);
+        process.off("SIGINT", stop);
+        process.off("SIGTERM", stop);
+        resolveStopped?.();
+      }
+    })();
+
+    return stopPromise;
+  };
+
+  printBanner();
+  console.log(
+    `${statusTag("ok")} Dashboard listening at ${valueText(
+      `http://${server.host}:${server.port}/dashboard`,
+    )}`,
+  );
+  console.log(`${statusTag("ok")} EDDN write mode enabled.`);
+
+  process.once("SIGINT", stop);
+  process.once("SIGTERM", stop);
+
+  try {
+    await Promise.race([
+      listenerPromise,
+      new Promise<void>((resolve) => {
+        resolveStopped = resolve;
+      }),
+    ]);
+  } finally {
+    if (!isStopping) {
+      await stopAll();
+    }
+  }
+}
+
 async function destroyDatabase(
   config: AppConfig,
   password: string | undefined,
@@ -426,8 +585,41 @@ async function destroyDatabase(
   }
 }
 
-async function runEddnListener(): Promise<void> {
-  const listener = createEddnListener();
+interface EddnListenerRunOptions {
+  readonly config: AppConfig | undefined;
+  readonly enableWrite: boolean;
+}
+
+async function runEddnListener(options: EddnListenerRunOptions): Promise<void> {
+  const database = options.config ? createDatabaseManager(options.config) : undefined;
+  const patchBuffer = options.enableWrite ? new EddnMarketPatchBuffer() : undefined;
+  const shownWarnings = new Set<string>();
+  const listener = createEddnListener({
+    onMarketSnapshot: patchBuffer
+      ? async (snapshot) => {
+          const queued = patchBuffer.queueSnapshot(snapshot);
+
+          for (const warning of queued.warnings) {
+            if (shownWarnings.has(warning)) {
+              continue;
+            }
+
+            shownWarnings.add(warning);
+            console.warn(`${statusTag("warn")} ${warning}`);
+          }
+
+          if (!database || queued.patches.length === 0) {
+            return;
+          }
+
+          await applyDatabasePatches(database, queued.patches);
+
+          for (const patch of queued.patches) {
+            console.log(`${statusTag("ok")} ${patch.description}`);
+          }
+        }
+      : undefined,
+  });
   let isStopping = false;
   const stop = (): void => {
     if (isStopping) {
@@ -443,8 +635,36 @@ async function runEddnListener(): Promise<void> {
   process.once("SIGTERM", stop);
 
   try {
+    if (database) {
+      const result = await database.initialize();
+
+      if (result.databaseCreated) {
+        console.log(
+          `${statusTag("created")} Database did not exist; created ${valueText(result.databaseName)}.`,
+        );
+      }
+
+      console.log(`${statusTag("ok")} EDDN write mode enabled.`);
+    }
+
     await listener.start();
   } finally {
+    if (database && patchBuffer) {
+      try {
+        const patches = patchBuffer.flush();
+
+        if (patches.length > 0) {
+          await applyDatabasePatches(database, patches);
+
+          for (const patch of patches) {
+            console.log(`${statusTag("ok")} ${patch.description}`);
+          }
+        }
+      } finally {
+        await database.close();
+      }
+    }
+
     process.off("SIGINT", stop);
     process.off("SIGTERM", stop);
   }
@@ -708,6 +928,8 @@ Usage:
   npm run dev -- --import [systems file]
   npm run dev -- --destroy-db --password <admin password>
   npm run dev -- --eddn
+  npm run dev -- --eddn --enable-write
+  npm run dev -- --dashboard --eddn --enable-write
   npm run dev -- --dashboard [port]
   npm run dev -- --dashboard-user-password <password>
   npm run dev -- --admin-user-password <password>
@@ -721,6 +943,8 @@ Database flags:
 
 EDDN flags:
   --eddn                                Listen for commodity market messages and log them.
+  --enable-write                        With --eddn, batch and write market patches to the database.
+                                        Can be combined with --dashboard.
 
 Dashboard flags:
   --dashboard [port]                    Serve the local read-only dashboard.

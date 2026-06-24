@@ -13,6 +13,7 @@ export interface EddnListener {
 export interface EddnListenerOptions {
   readonly relayUrl?: string;
   readonly logger?: Pick<Console, "error" | "log" | "warn">;
+  onMarketSnapshot?(snapshot: MarketSnapshot): Promise<void> | void;
 }
 
 interface EddnEnvelope {
@@ -80,7 +81,11 @@ export function createEddnListener(
       isRunning = true;
       logger.log(`Listening for EDDN commodity market data at ${relayUrl}`);
 
-      loopPromise = runListenerLoop(socket, logger).finally(() => {
+      loopPromise = runListenerLoop(
+        socket,
+        logger,
+        options.onMarketSnapshot,
+      ).finally(() => {
         isRunning = false;
         socket = undefined;
         loopPromise = undefined;
@@ -110,6 +115,7 @@ export function createEddnListener(
 async function runListenerLoop(
   socket: Subscriber,
   logger: Pick<Console, "error" | "log" | "warn">,
+  onMarketSnapshot?: (snapshot: MarketSnapshot) => Promise<void> | void,
 ): Promise<void> {
   try {
     for await (const [payload] of socket) {
@@ -123,7 +129,11 @@ async function runListenerLoop(
         continue;
       }
 
-      logMarketSnapshot(snapshot, logger);
+      if (onMarketSnapshot) {
+        await onMarketSnapshot(snapshot);
+      } else {
+        logMarketSnapshot(snapshot, logger);
+      }
     }
   } catch (error: unknown) {
     if (!isExpectedCloseError(error)) {
