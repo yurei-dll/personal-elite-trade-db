@@ -22,6 +22,7 @@ export interface SystemsImportOptions {
 export interface SystemsImportResult {
   readonly batchesPatched: number;
   readonly filePath: string;
+  readonly systemDuplicatesSkipped: number;
   readonly systemsImported: number;
   readonly systemsSkipped: number;
   readonly workspacePath: string;
@@ -37,6 +38,7 @@ export interface StationsImportOptions {
 export interface StationsImportResult {
   readonly batchesPatched: number;
   readonly filePath: string;
+  readonly stationDuplicatesSkipped: number;
   readonly stationsImported: number;
   readonly stationsSkipped: number;
   readonly stationsWithoutImportedSystems: number;
@@ -109,6 +111,11 @@ interface ImportedSystemLookup {
   readonly names: ReadonlyMap<string, number>;
 }
 
+interface ImportPatchResult {
+  readonly duplicatesSkipped: number;
+  readonly imported: number;
+}
+
 export async function importSystems(
   database: DatabaseManager,
   options: SystemsImportOptions = {},
@@ -123,6 +130,7 @@ export async function importSystems(
   const startedAt = Date.now();
   let batchesPatched = 0;
   let systemsParsed = 0;
+  let systemDuplicatesSkipped = 0;
   let systemsImported = 0;
   let systemsSkipped = 0;
 
@@ -146,9 +154,10 @@ export async function importSystems(
     batch.push(system);
 
     if (batch.length >= batchSize) {
-      await patchSystems(database, batch);
+      const result = await patchSystems(database, batch, logger);
       batchesPatched += 1;
-      systemsImported += batch.length;
+      systemDuplicatesSkipped += result.duplicatesSkipped;
+      systemsImported += result.imported;
       batch.length = 0;
     }
 
@@ -156,6 +165,7 @@ export async function importSystems(
       logSystemImportProgress(logger, {
         batchesPatched,
         startedAt,
+        systemDuplicatesSkipped,
         systemsImported,
         systemsParsed,
         systemsSkipped,
@@ -164,14 +174,16 @@ export async function importSystems(
   }
 
   if (batch.length > 0) {
-    await patchSystems(database, batch);
+    const result = await patchSystems(database, batch, logger);
     batchesPatched += 1;
-    systemsImported += batch.length;
+    systemDuplicatesSkipped += result.duplicatesSkipped;
+    systemsImported += result.imported;
   }
 
   return {
     batchesPatched,
     filePath,
+    systemDuplicatesSkipped,
     systemsImported,
     systemsSkipped,
     workspacePath,
@@ -191,6 +203,7 @@ export async function importStations(
   const batch: ImportedStation[] = [];
   const startedAt = Date.now();
   let batchesPatched = 0;
+  let stationDuplicatesSkipped = 0;
   let stationsImported = 0;
   let stationsParsed = 0;
   let stationsSkipped = 0;
@@ -228,20 +241,25 @@ export async function importStations(
     }
 
     if (batch.length >= batchSize) {
-      stationsImported += await patchStations(database, batch);
+      const result = await patchStations(database, batch, logger);
+      stationDuplicatesSkipped += result.duplicatesSkipped;
+      stationsImported += result.imported;
       batchesPatched += 1;
       batch.length = 0;
     }
 
     if (shouldLogStationImportProgress(stationsParsed)) {
       if (batch.length > 0) {
-        stationsImported += await patchStations(database, batch);
+        const result = await patchStations(database, batch, logger);
+        stationDuplicatesSkipped += result.duplicatesSkipped;
+        stationsImported += result.imported;
         batchesPatched += 1;
         batch.length = 0;
       }
 
       logStationImportProgress(logger, {
         batchesPatched,
+        stationDuplicatesSkipped,
         startedAt,
         stationsImported,
         stationsParsed,
@@ -252,13 +270,16 @@ export async function importStations(
   }
 
   if (batch.length > 0) {
-    stationsImported += await patchStations(database, batch);
+    const result = await patchStations(database, batch, logger);
+    stationDuplicatesSkipped += result.duplicatesSkipped;
+    stationsImported += result.imported;
     batchesPatched += 1;
   }
 
   return {
     batchesPatched,
     filePath,
+    stationDuplicatesSkipped,
     stationsImported,
     stationsSkipped,
     stationsWithoutImportedSystems,
@@ -460,6 +481,43 @@ function readStationUpdatedAt(value: unknown): string | undefined {
 async function patchSystems(
   database: DatabaseManager,
   systems: readonly ImportedSystem[],
+  logger: Pick<Console, "log" | "warn">,
+): Promise<ImportPatchResult> {
+  try {
+    await patchSystemsBatch(database, systems);
+
+    return { duplicatesSkipped: 0, imported: systems.length };
+  } catch (error) {
+    if (!isRecoverableImportDuplicateError(error)) {
+      throw error;
+    }
+  }
+
+  let duplicatesSkipped = 0;
+  let imported = 0;
+
+  for (const system of systems) {
+    try {
+      await patchSystemsBatch(database, [system]);
+      imported += 1;
+    } catch (error) {
+      if (!isRecoverableImportDuplicateError(error)) {
+        throw error;
+      }
+
+      duplicatesSkipped += 1;
+      logger.warn(
+        `Skipped duplicate system ${system.id} (${system.name}): ${formatImportError(error)}`,
+      );
+    }
+  }
+
+  return { duplicatesSkipped, imported };
+}
+
+async function patchSystemsBatch(
+  database: DatabaseManager,
+  systems: readonly ImportedSystem[],
 ): Promise<void> {
   await database.query(
     `
@@ -531,6 +589,40 @@ function resolveImportedStationSystemId(
 }
 
 async function patchStations(
+  database: DatabaseManager,
+  stations: readonly ImportedStation[],
+  logger: Pick<Console, "log" | "warn">,
+): Promise<ImportPatchResult> {
+  try {
+    return { duplicatesSkipped: 0, imported: await patchStationsBatch(database, stations) };
+  } catch (error) {
+    if (!isRecoverableImportDuplicateError(error)) {
+      throw error;
+    }
+  }
+
+  let duplicatesSkipped = 0;
+  let imported = 0;
+
+  for (const station of stations) {
+    try {
+      imported += await patchStationsBatch(database, [station]);
+    } catch (error) {
+      if (!isRecoverableImportDuplicateError(error)) {
+        throw error;
+      }
+
+      duplicatesSkipped += 1;
+      logger.warn(
+        `Skipped duplicate station ${station.id} (${station.name}) in system ${station.systemId}: ${formatImportError(error)}`,
+      );
+    }
+  }
+
+  return { duplicatesSkipped, imported };
+}
+
+async function patchStationsBatch(
   database: DatabaseManager,
   stations: readonly ImportedStation[],
 ): Promise<number> {
@@ -615,6 +707,7 @@ function logStationImportProgress(
   logger: Pick<Console, "log" | "warn">,
   stats: {
     readonly batchesPatched: number;
+    readonly stationDuplicatesSkipped: number;
     readonly startedAt: number;
     readonly stationsImported: number;
     readonly stationsParsed: number;
@@ -630,6 +723,7 @@ function logStationImportProgress(
       `Station import progress: parsed ${stats.stationsParsed.toLocaleString()}`,
       `imported ${stats.stationsImported.toLocaleString()}`,
       `missing systems ${stats.stationsWithoutImportedSystems.toLocaleString()}`,
+      `duplicates ${stats.stationDuplicatesSkipped.toLocaleString()}`,
       `malformed ${stats.stationsSkipped.toLocaleString()}`,
       `batches ${stats.batchesPatched.toLocaleString()}`,
       `${recordsPerSecond.toLocaleString()} records/s`,
@@ -642,6 +736,7 @@ function logSystemImportProgress(
   stats: {
     readonly batchesPatched: number;
     readonly startedAt: number;
+    readonly systemDuplicatesSkipped: number;
     readonly systemsImported: number;
     readonly systemsParsed: number;
     readonly systemsSkipped: number;
@@ -654,6 +749,7 @@ function logSystemImportProgress(
     [
       `System import progress: parsed ${stats.systemsParsed.toLocaleString()}`,
       `imported ${stats.systemsImported.toLocaleString()}`,
+      `duplicates ${stats.systemDuplicatesSkipped.toLocaleString()}`,
       `malformed ${stats.systemsSkipped.toLocaleString()}`,
       `batches ${stats.batchesPatched.toLocaleString()}`,
       `${recordsPerSecond.toLocaleString()} records/s`,
@@ -667,6 +763,27 @@ function shouldLogStationImportProgress(stationsParsed: number): boolean {
 
 function shouldLogImportProgress(recordsParsed: number): boolean {
   return recordsParsed > 0 && recordsParsed % DEFAULT_PROGRESS_RECORDS === 0;
+}
+
+function isRecoverableImportDuplicateError(error: unknown): boolean {
+  if (!isPlainObject(error)) {
+    return false;
+  }
+
+  const code = error.code;
+
+  return code === "23505" || code === "21000";
+}
+
+function formatImportError(error: unknown): string {
+  if (!isPlainObject(error)) {
+    return String(error);
+  }
+
+  const detail = typeof error.detail === "string" ? error.detail : undefined;
+  const message = typeof error.message === "string" ? error.message : undefined;
+
+  return detail ?? message ?? String(error);
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
