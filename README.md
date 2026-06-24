@@ -111,6 +111,19 @@ hash stored in `.env`:
 npm run dev -- --destroy-db --password "your admin password"
 ```
 
+Serve the local read-only dashboard:
+
+```bash
+npm run dev -- --dashboard
+```
+
+The dashboard listens on `http://127.0.0.1:8787/dashboard` by default. Pass a
+port to override it:
+
+```bash
+npm run dev -- --dashboard 8791
+```
+
 Build and run the compiled JavaScript:
 
 ```bash
@@ -145,13 +158,13 @@ Source files live in `src/`. Build output is written to `dist/` and should not b
     * [ ] Store station/system/commodity data
 * [ ] Dashboard
   * [ ] Basic authentication
-    * [x] Password storage with `bcrypt`
-    * [ ] Credential manager back-end
-      * [ ] Read-only access by default
-      * [ ] Privilege escalation using separate password for destructive actions.
-    * [ ] Basic rate-limiting for incorrect login attempts
-  * [ ] Database stats page
-  * [ ] Server stats page
+    * [x] Password storage with `scrypt`
+    * [x] Credential manager back-end
+      * [x] Read-only access by default
+      * [x] Privilege escalation using separate password for destructive actions.
+    * [x] Basic rate-limiting for incorrect login attempts
+  * [x] Database stats page
+  * [x] Server stats page
   * [ ] Route planning
   * [ ] Store preferences in browser
 
