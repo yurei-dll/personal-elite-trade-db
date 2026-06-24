@@ -9,6 +9,8 @@ const DEFAULT_IMPORT_WORKSPACE = "import";
 const DEFAULT_SYSTEMS_IMPORT_FILE = "systemsWithCoordinates7days.json.gz";
 const DEFAULT_STATIONS_IMPORT_FILE = "stations.json.gz";
 const DEFAULT_BATCH_SIZE = 50;
+const DEFAULT_STATIONS_BATCH_SIZE = 1_000;
+const DEFAULT_PROGRESS_RECORDS = 10_000;
 
 export interface SystemsImportOptions {
   readonly batchSize?: number;
@@ -71,6 +73,7 @@ interface ImportedStation {
   readonly maxLandingPadSize: string | null;
   readonly name: string;
   readonly systemId: number;
+  readonly systemName: string | null;
   readonly type: string | null;
   readonly updatedAt: string;
 }
@@ -84,6 +87,7 @@ interface RawImportedStation {
   readonly maxLandingPadSize?: unknown;
   readonly name?: unknown;
   readonly systemId?: unknown;
+  readonly systemName?: unknown;
   readonly type?: unknown;
   readonly updateTime?: unknown;
 }
@@ -93,6 +97,16 @@ interface RawStationUpdateTime {
   readonly market?: unknown;
   readonly outfitting?: unknown;
   readonly shipyard?: unknown;
+}
+
+interface SystemIdRow {
+  readonly id: string;
+  readonly name: string;
+}
+
+interface ImportedSystemLookup {
+  readonly ids: ReadonlySet<number>;
+  readonly names: ReadonlyMap<string, number>;
 }
 
 export async function importSystems(
@@ -106,7 +120,9 @@ export async function importSystems(
   );
   const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
   const batch: ImportedSystem[] = [];
+  const startedAt = Date.now();
   let batchesPatched = 0;
+  let systemsParsed = 0;
   let systemsImported = 0;
   let systemsSkipped = 0;
 
@@ -126,6 +142,7 @@ export async function importSystems(
       continue;
     }
 
+    systemsParsed += 1;
     batch.push(system);
 
     if (batch.length >= batchSize) {
@@ -133,6 +150,16 @@ export async function importSystems(
       batchesPatched += 1;
       systemsImported += batch.length;
       batch.length = 0;
+    }
+
+    if (shouldLogImportProgress(systemsParsed)) {
+      logSystemImportProgress(logger, {
+        batchesPatched,
+        startedAt,
+        systemsImported,
+        systemsParsed,
+        systemsSkipped,
+      });
     }
   }
 
@@ -160,12 +187,14 @@ export async function importStations(
   const filePath = path.resolve(
     options.filePath ?? path.join(workspacePath, DEFAULT_STATIONS_IMPORT_FILE),
   );
-  const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
+  const batchSize = options.batchSize ?? DEFAULT_STATIONS_BATCH_SIZE;
   const batch: ImportedStation[] = [];
+  const startedAt = Date.now();
   let batchesPatched = 0;
   let stationsImported = 0;
   let stationsParsed = 0;
   let stationsSkipped = 0;
+  let stationsWithoutImportedSystems = 0;
 
   if (!Number.isInteger(batchSize) || batchSize < 1) {
     throw new Error("Import batch size must be a positive integer.");
@@ -174,6 +203,11 @@ export async function importStations(
   await mkdir(workspacePath, { recursive: true });
   logger.log(`Import workspace ready at ${workspacePath}`);
   logger.log(`Importing stations from ${filePath}`);
+
+  const importedSystems = await loadImportedSystemLookup(database);
+  logger.log(
+    `Loaded ${importedSystems.ids.size.toLocaleString()} imported systems for station matching.`,
+  );
 
   for await (const candidate of streamTopLevelJsonObjects(filePath)) {
     const station = parseImportedStation(candidate);
@@ -184,12 +218,36 @@ export async function importStations(
     }
 
     stationsParsed += 1;
-    batch.push(station);
+
+    const resolvedSystemId = resolveImportedStationSystemId(station, importedSystems);
+
+    if (resolvedSystemId === undefined) {
+      stationsWithoutImportedSystems += 1;
+    } else {
+      batch.push({ ...station, systemId: resolvedSystemId });
+    }
 
     if (batch.length >= batchSize) {
       stationsImported += await patchStations(database, batch);
       batchesPatched += 1;
       batch.length = 0;
+    }
+
+    if (shouldLogStationImportProgress(stationsParsed)) {
+      if (batch.length > 0) {
+        stationsImported += await patchStations(database, batch);
+        batchesPatched += 1;
+        batch.length = 0;
+      }
+
+      logStationImportProgress(logger, {
+        batchesPatched,
+        startedAt,
+        stationsImported,
+        stationsParsed,
+        stationsSkipped,
+        stationsWithoutImportedSystems,
+      });
     }
   }
 
@@ -203,7 +261,7 @@ export async function importStations(
     filePath,
     stationsImported,
     stationsSkipped,
-    stationsWithoutImportedSystems: stationsParsed - stationsImported,
+    stationsWithoutImportedSystems,
     workspacePath,
   };
 }
@@ -340,21 +398,15 @@ function parseImportedSystem(candidate: string): ImportedSystem | undefined {
 }
 
 function parseImportedStation(candidate: string): ImportedStation | undefined {
-  let parsed: unknown;
+  const rawStation = readStationHeader(candidate);
 
-  try {
-    parsed = JSON.parse(candidate);
-  } catch {
+  if (!rawStation) {
     return undefined;
   }
 
-  if (!isPlainObject(parsed)) {
-    return undefined;
-  }
-
-  const rawStation = parsed as RawImportedStation;
   const id = readNumber(rawStation.marketId) ?? readNumber(rawStation.id);
   const systemId = readNumber(rawStation.systemId);
+  const systemName = readStringOrNull(rawStation.systemName);
   const name = readString(rawStation.name);
   const updatedAt = readStationUpdatedAt(rawStation.updateTime);
 
@@ -370,9 +422,24 @@ function parseImportedStation(candidate: string): ImportedStation | undefined {
     maxLandingPadSize: readStringOrNull(rawStation.maxLandingPadSize),
     name,
     systemId,
+    systemName,
     type: readStringOrNull(rawStation.type),
     updatedAt,
   };
+}
+
+function readStationHeader(candidate: string): RawImportedStation | undefined {
+  const commoditiesIndex = candidate.indexOf("\"commodities\"");
+  const header =
+    commoditiesIndex < 0 ? candidate : `${candidate.slice(0, commoditiesIndex).replace(/,\s*$/u, "")}}`;
+
+  try {
+    const parsed = JSON.parse(header);
+
+    return isPlainObject(parsed) ? (parsed as RawImportedStation) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function readStationUpdatedAt(value: unknown): string | undefined {
@@ -423,6 +490,44 @@ async function patchSystems(
       systems.map((system) => system.updatedAt),
     ],
   );
+}
+
+async function loadImportedSystemLookup(
+  database: DatabaseManager,
+): Promise<ImportedSystemLookup> {
+  const result = await database.query<SystemIdRow>(
+    "SELECT id::text AS id, name FROM systems",
+  );
+  const ids = new Set<number>();
+  const names = new Map<string, number>();
+
+  for (const row of result.rows) {
+    const id = Number(row.id);
+
+    if (!Number.isFinite(id)) {
+      continue;
+    }
+
+    ids.add(id);
+    names.set(row.name, id);
+  }
+
+  return { ids, names };
+}
+
+function resolveImportedStationSystemId(
+  station: ImportedStation,
+  importedSystems: ImportedSystemLookup,
+): number | undefined {
+  if (importedSystems.ids.has(station.systemId)) {
+    return station.systemId;
+  }
+
+  if (!station.systemName) {
+    return undefined;
+  }
+
+  return importedSystems.names.get(station.systemName);
 }
 
 async function patchStations(
@@ -504,6 +609,64 @@ async function patchStations(
   );
 
   return result.rowCount ?? 0;
+}
+
+function logStationImportProgress(
+  logger: Pick<Console, "log" | "warn">,
+  stats: {
+    readonly batchesPatched: number;
+    readonly startedAt: number;
+    readonly stationsImported: number;
+    readonly stationsParsed: number;
+    readonly stationsSkipped: number;
+    readonly stationsWithoutImportedSystems: number;
+  },
+): void {
+  const elapsedSeconds = Math.max(1, Math.round((Date.now() - stats.startedAt) / 1_000));
+  const recordsPerSecond = Math.round(stats.stationsParsed / elapsedSeconds);
+
+  logger.log(
+    [
+      `Station import progress: parsed ${stats.stationsParsed.toLocaleString()}`,
+      `imported ${stats.stationsImported.toLocaleString()}`,
+      `missing systems ${stats.stationsWithoutImportedSystems.toLocaleString()}`,
+      `malformed ${stats.stationsSkipped.toLocaleString()}`,
+      `batches ${stats.batchesPatched.toLocaleString()}`,
+      `${recordsPerSecond.toLocaleString()} records/s`,
+    ].join("; "),
+  );
+}
+
+function logSystemImportProgress(
+  logger: Pick<Console, "log" | "warn">,
+  stats: {
+    readonly batchesPatched: number;
+    readonly startedAt: number;
+    readonly systemsImported: number;
+    readonly systemsParsed: number;
+    readonly systemsSkipped: number;
+  },
+): void {
+  const elapsedSeconds = Math.max(1, Math.round((Date.now() - stats.startedAt) / 1_000));
+  const recordsPerSecond = Math.round(stats.systemsParsed / elapsedSeconds);
+
+  logger.log(
+    [
+      `System import progress: parsed ${stats.systemsParsed.toLocaleString()}`,
+      `imported ${stats.systemsImported.toLocaleString()}`,
+      `malformed ${stats.systemsSkipped.toLocaleString()}`,
+      `batches ${stats.batchesPatched.toLocaleString()}`,
+      `${recordsPerSecond.toLocaleString()} records/s`,
+    ].join("; "),
+  );
+}
+
+function shouldLogStationImportProgress(stationsParsed: number): boolean {
+  return shouldLogImportProgress(stationsParsed);
+}
+
+function shouldLogImportProgress(recordsParsed: number): boolean {
+  return recordsParsed > 0 && recordsParsed % DEFAULT_PROGRESS_RECORDS === 0;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
