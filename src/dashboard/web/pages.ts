@@ -290,6 +290,7 @@ function renderDocument(options: {
         --warning: #f6c95f;
       }
       * { box-sizing: border-box; }
+      [hidden] { display: none !important; }
       body {
         margin: 0;
         min-height: 100vh;

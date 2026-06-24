@@ -17,6 +17,7 @@ import {
   DASHBOARD_SCRIPT,
   HTMX_SCRIPT,
   ROUTE_PLANNER_SCRIPT,
+  THREE_CORE_SCRIPT,
   THREE_MODULE_SCRIPT,
 } from "./web/assets";
 import {
@@ -125,6 +126,13 @@ export async function startDashboardServer(
 
   app.get("/dashboard/assets/three.module.js", (context) => {
     return context.body(THREE_MODULE_SCRIPT, 200, {
+      "Cache-Control": "public, max-age=31536000, immutable",
+      "Content-Type": "text/javascript; charset=utf-8",
+    });
+  });
+
+  app.get("/dashboard/assets/three.core.js", (context) => {
+    return context.body(THREE_CORE_SCRIPT, 200, {
       "Cache-Control": "public, max-age=31536000, immutable",
       "Content-Type": "text/javascript; charset=utf-8",
     });

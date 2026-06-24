@@ -11,6 +11,11 @@ export const THREE_MODULE_SCRIPT = readFileSync(
   "utf8",
 );
 
+export const THREE_CORE_SCRIPT = readFileSync(
+  join(dirname(require.resolve("three")), "three.core.js"),
+  "utf8",
+);
+
 export const DASHBOARD_SCRIPT = `
 (() => {
   const storageKey = "petdb.dashboard.refreshSeconds";
