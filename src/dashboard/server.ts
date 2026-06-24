@@ -97,7 +97,7 @@ export async function startDashboardServer(
 
   app.get("/dashboard/assets/dashboard.js", (context) => {
     return context.body(DASHBOARD_SCRIPT, 200, {
-      "Cache-Control": "public, max-age=31536000, immutable",
+      "Cache-Control": "no-store",
       "Content-Type": "text/javascript; charset=utf-8",
     });
   });

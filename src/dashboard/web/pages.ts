@@ -59,11 +59,18 @@ export function renderDashboardPage(options: {
           </form>
         </div>
       </header>
-      <main class="dashboard-grid">
-        ${renderSummarySection(options.stats)}
-        ${renderInboundMessagesSection()}
-        ${renderHealthSection(options.health)}
-        ${renderAdminSection(options.session, options.adminMessage)}
+      <nav class="tabs" aria-label="Dashboard sections">
+        <a class="tab active" href="/dashboard" aria-current="page">Dashboard</a>
+        <span class="tab disabled" aria-disabled="true">Route Planner</span>
+      </nav>
+      <main>
+        <section class="dashboard-grid" aria-labelledby="dashboard-tab-title">
+          <h2 id="dashboard-tab-title" class="visually-hidden">Dashboard</h2>
+          ${renderSummarySection(options.stats)}
+          ${renderInboundMessagesSection()}
+          ${renderHealthSection(options.health)}
+          ${renderAdminSection(options.session, options.adminMessage)}
+        </section>
       </main>
       <script src="/dashboard/assets/htmx.min.js"></script>
       <script src="/dashboard/assets/dashboard.js"></script>
@@ -305,6 +312,38 @@ function renderDocument(options: {
         display: flex;
         gap: 0.75rem;
       }
+      .tabs {
+        display: flex;
+        gap: 0.5rem;
+        padding: 0 2rem;
+      }
+      .tab {
+        background: rgba(17, 20, 28, 0.9);
+        border: 1px solid var(--line);
+        border-bottom-color: transparent;
+        border-radius: 8px 8px 0 0;
+        color: var(--muted);
+        font-weight: 800;
+        padding: 0.75rem 1rem;
+        text-decoration: none;
+      }
+      .tab.active {
+        color: var(--text);
+        border-color: var(--accent);
+        border-bottom-color: var(--line);
+      }
+      .tab.disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+      .visually-hidden {
+        height: 1px;
+        margin: -1px;
+        overflow: hidden;
+        position: absolute;
+        width: 1px;
+        clip: rect(0 0 0 0);
+      }
       .select-field {
         position: relative;
       }
@@ -321,7 +360,7 @@ function renderDocument(options: {
         display: grid;
         gap: 1rem;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        padding: 0 2rem 2rem;
+        padding: 1rem 2rem 2rem;
       }
       .section {
         background: rgba(17, 20, 28, 0.9);
@@ -444,9 +483,13 @@ function renderDocument(options: {
           align-items: stretch;
           flex-direction: column;
         }
+        .tabs {
+          overflow-x: auto;
+          padding: 0 1rem;
+        }
         .dashboard-grid {
           grid-template-columns: 1fr;
-          padding: 0 1rem 1rem;
+          padding: 1rem;
         }
         .metric-grid, .freshness {
           grid-template-columns: 1fr;
