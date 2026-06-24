@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
-import type { ManagedEnvUpdates } from "./config";
+import type { AppConfig, ManagedEnvUpdates } from "./config";
 import { loadConfig, saveManagedEnvValues } from "./config";
 import type { DatabaseDoctorReport, DatabaseDoctorStatus } from "./database";
 import { createDatabaseManager } from "./database";
-import { hashPassword } from "./dashboard";
+import { hashPassword, verifyPasswordHash } from "./dashboard";
 import { createEddnListener } from "./eddn/listener";
 
 const DASHBOARD_PASSWORD_FLAGS = new Set([
@@ -39,6 +39,11 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
   }
 
   const config = loadConfig();
+
+  if (parsedArgs.destroyDatabase) {
+    await destroyDatabase(config, parsedArgs.destroyPassword);
+    return;
+  }
 
   console.log("personal-elite-trade-db");
   console.log(`Environment: ${config.nodeEnv}`);
@@ -84,6 +89,8 @@ if (require.main === module) {
 }
 
 interface ParsedArgs {
+  readonly destroyDatabase: boolean;
+  readonly destroyPassword: string | undefined;
   readonly envValues: ManagedEnvUpdates;
   readonly hasPasswordUpdates: boolean;
   readonly initializeDatabase: boolean;
@@ -96,6 +103,8 @@ interface ParsedArgs {
 function parseArgs(args: readonly string[]): ParsedArgs {
   const envValues: ManagedEnvUpdates = {};
   const updatedLabels: string[] = [];
+  let destroyDatabase = false;
+  let destroyPassword: string | undefined;
   let initializeDatabase = false;
   let listenEddn = false;
   let runDoctor = false;
@@ -109,6 +118,8 @@ function parseArgs(args: readonly string[]): ParsedArgs {
 
     if (arg === "--help" || arg === "-h") {
       return {
+        destroyDatabase: false,
+        destroyPassword: undefined,
         envValues,
         hasPasswordUpdates: false,
         initializeDatabase: false,
@@ -131,6 +142,30 @@ function parseArgs(args: readonly string[]): ParsedArgs {
 
     if (arg === "--doctor") {
       runDoctor = true;
+      continue;
+    }
+
+    if (arg === "--destroy-db") {
+      destroyDatabase = true;
+      continue;
+    }
+
+    const parsedDestroyPassword = parseDestroyPasswordFlag(arg);
+
+    if (parsedDestroyPassword) {
+      const password =
+        parsedDestroyPassword.password ??
+        readRequiredFlagValue(args, index, parsedDestroyPassword.flag);
+
+      if (parsedDestroyPassword.password === undefined) {
+        index += 1;
+      }
+
+      if (!password) {
+        throw new Error(`${parsedDestroyPassword.flag} requires a non-empty password.`);
+      }
+
+      destroyPassword = password;
       continue;
     }
 
@@ -161,7 +196,21 @@ function parseArgs(args: readonly string[]): ParsedArgs {
     updatedLabels.push("admin");
   }
 
+  if (destroyDatabase && updatedLabels.length > 0) {
+    throw new Error("Password hash updates cannot be combined with --destroy-db.");
+  }
+
+  if (destroyPassword !== undefined && !destroyDatabase) {
+    throw new Error("--password can only be used with --destroy-db.");
+  }
+
+  if (destroyDatabase && destroyPassword === undefined) {
+    throw new Error("--destroy-db requires --password <password>.");
+  }
+
   return {
+    destroyDatabase,
+    destroyPassword,
     envValues,
     hasPasswordUpdates: updatedLabels.length > 0,
     initializeDatabase,
@@ -170,6 +219,37 @@ function parseArgs(args: readonly string[]): ParsedArgs {
     showHelp: false,
     updatedLabels,
   };
+}
+
+async function destroyDatabase(
+  config: AppConfig,
+  password: string | undefined,
+): Promise<void> {
+  if (!config.adminPasswordHash) {
+    throw new Error("ADMIN_PASSWORD_HASH is not set in .env.");
+  }
+
+  if (!password) {
+    throw new Error("--destroy-db requires --password <password>.");
+  }
+
+  const isAuthorized = await verifyPasswordHash(password, config.adminPasswordHash);
+
+  if (!isAuthorized) {
+    throw new Error("Admin password did not match.");
+  }
+
+  console.log("personal-elite-trade-db");
+  console.log(`Database: ${config.databaseName}`);
+
+  const database = createDatabaseManager(config);
+
+  try {
+    const destroyedDatabaseName = await database.destroy();
+    console.log(`Database destroyed: ${destroyedDatabaseName}`);
+  } finally {
+    await database.close();
+  }
 }
 
 async function runEddnListener(): Promise<void> {
@@ -206,6 +286,20 @@ function parsePasswordFlag(arg: string): ParsedPasswordFlag | undefined {
   const flag = equalsIndex === -1 ? arg : arg.slice(0, equalsIndex);
 
   if (!DASHBOARD_PASSWORD_FLAGS.has(flag) && !ADMIN_PASSWORD_FLAGS.has(flag)) {
+    return undefined;
+  }
+
+  return {
+    flag,
+    password: equalsIndex === -1 ? undefined : arg.slice(equalsIndex + 1),
+  };
+}
+
+function parseDestroyPasswordFlag(arg: string): ParsedPasswordFlag | undefined {
+  const equalsIndex = arg.indexOf("=");
+  const flag = equalsIndex === -1 ? arg : arg.slice(0, equalsIndex);
+
+  if (flag !== "--password") {
     return undefined;
   }
 
@@ -342,6 +436,7 @@ Usage:
   npm run dev
   npm run dev -- --doctor
   npm run dev -- --init
+  npm run dev -- --destroy-db --password <admin password>
   npm run dev -- --eddn
   npm run dev -- --dashboard-user-password <password>
   npm run dev -- --admin-user-password <password>
@@ -349,6 +444,8 @@ Usage:
 Database flags:
   --doctor                              Check connection, account, schema, and debug info.
   --init                                Create the database schema if needed.
+  --destroy-db                          Drop the configured PostgreSQL database.
+  --password <password>                 Admin password required by --destroy-db.
 
 EDDN flags:
   --eddn                                Listen for commodity market messages and log them.

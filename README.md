@@ -101,6 +101,13 @@ Check the database connection, account privileges, schema, and debug info:
 npm run dev -- --doctor
 ```
 
+Destroy the configured PostgreSQL database after verifying the admin password
+hash stored in `.env`:
+
+```bash
+npm run dev -- --destroy-db --password "your admin password"
+```
+
 Build and run the compiled JavaScript:
 
 ```bash

@@ -57,6 +57,7 @@ export interface DatabaseManager {
   readonly isConnected: boolean;
   connect(): Promise<void>;
   close(): Promise<void>;
+  destroy(): Promise<string>;
   query<Row extends QueryResultRow = QueryResultRow>(
     sql: string,
     params?: DatabaseQueryParams,
@@ -177,6 +178,8 @@ const EXPECTED_INDEXES = [
 ] as const;
 
 const EXPECTED_TABLE_NAMES = EXPECTED_TABLES.map((table) => table.name);
+const SOCKET_DATABASE_URL_PATTERN =
+  /^(postgres(?:ql)?:\/\/(?:[^@/?#]*@)?\/)([^/?#]+)(.*)$/u;
 
 export function createDatabaseManager(config: AppConfig): DatabaseManager {
   const pool = new Pool({
@@ -205,6 +208,39 @@ export function createDatabaseManager(config: AppConfig): DatabaseManager {
     async close(): Promise<void> {
       await pool.end();
       isConnected = false;
+    },
+    async destroy(): Promise<string> {
+      const targetDatabaseName = readDatabaseNameFromUrl(config.databaseUrl);
+      const maintenanceDatabaseName =
+        targetDatabaseName === "postgres" ? "template1" : "postgres";
+      const maintenancePool = new Pool({
+        connectionString: replaceDatabaseNameInUrl(
+          config.databaseUrl,
+          maintenanceDatabaseName,
+        ),
+        connectionTimeoutMillis: 5000,
+      });
+      const client = await maintenancePool.connect();
+
+      try {
+        await client.query(
+          `
+            SELECT pg_terminate_backend(pid)
+            FROM pg_stat_activity
+            WHERE datname = $1
+              AND pid <> pg_backend_pid()
+          `,
+          [targetDatabaseName],
+        );
+        await client.query(
+          `DROP DATABASE IF EXISTS ${quoteIdentifier(targetDatabaseName)}`,
+        );
+        isConnected = false;
+        return targetDatabaseName;
+      } finally {
+        client.release();
+        await maintenancePool.end();
+      }
     },
     async query<Row extends QueryResultRow = QueryResultRow>(
       sql: string,
@@ -343,6 +379,54 @@ export function createDatabaseManager(config: AppConfig): DatabaseManager {
       }
     },
   };
+}
+
+function readDatabaseNameFromUrl(databaseUrl: string): string {
+  try {
+    const parsedUrl = new URL(databaseUrl);
+    const databaseName = decodeURIComponent(parsedUrl.pathname.slice(1));
+
+    if (databaseName) {
+      return databaseName;
+    }
+  } catch {
+    // The connection attempt will produce the most useful error for invalid URLs.
+  }
+
+  const socketMatch = SOCKET_DATABASE_URL_PATTERN.exec(databaseUrl);
+  const socketDatabaseName = socketMatch?.[2]
+    ? decodeURIComponent(socketMatch[2])
+    : undefined;
+
+  if (socketDatabaseName) {
+    return socketDatabaseName;
+  }
+
+  throw new Error("Could not determine the configured database name.");
+}
+
+function replaceDatabaseNameInUrl(
+  databaseUrl: string,
+  databaseName: string,
+): string {
+  try {
+    const parsedUrl = new URL(databaseUrl);
+    parsedUrl.pathname = `/${encodeURIComponent(databaseName)}`;
+
+    return parsedUrl.toString();
+  } catch {
+    const socketMatch = SOCKET_DATABASE_URL_PATTERN.exec(databaseUrl);
+
+    if (socketMatch) {
+      return `${socketMatch[1]}${encodeURIComponent(databaseName)}${socketMatch[3]}`;
+    }
+  }
+
+  throw new Error("Could not update the configured database name.");
+}
+
+function quoteIdentifier(identifier: string): string {
+  return `"${identifier.replace(/"/gu, '""')}"`;
 }
 
 interface DoctorAccountRow extends QueryResultRow {
