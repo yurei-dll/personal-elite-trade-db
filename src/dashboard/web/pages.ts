@@ -60,20 +60,22 @@ export function renderDashboardPage(options: {
         </div>
       </header>
       <nav class="tabs" aria-label="Dashboard sections">
-        <a class="tab active" href="/dashboard" aria-current="page">Dashboard</a>
-        <span class="tab disabled" aria-disabled="true">Route Planner</span>
+        <button class="tab active" type="button" data-dashboard-tab="dashboard" aria-selected="true">Dashboard</button>
+        <button class="tab" type="button" data-dashboard-tab="route-planner" aria-selected="false">Route Planner</button>
       </nav>
       <main>
-        <section class="dashboard-grid" aria-labelledby="dashboard-tab-title">
+        <section class="dashboard-grid" data-tab-panel="dashboard" aria-labelledby="dashboard-tab-title">
           <h2 id="dashboard-tab-title" class="visually-hidden">Dashboard</h2>
           ${renderSummarySection(options.stats)}
           ${renderInboundMessagesSection()}
           ${renderHealthSection(options.health)}
           ${renderAdminSection(options.session, options.adminMessage)}
         </section>
+        ${renderRoutePlannerSection()}
       </main>
       <script src="/dashboard/assets/htmx.min.js"></script>
       <script src="/dashboard/assets/dashboard.js"></script>
+      <script src="/dashboard/assets/route-planner.js"></script>
     `,
     title: "Command Dashboard",
   });
@@ -154,6 +156,58 @@ function renderInboundMessagesSection(): string {
         <canvas data-inbound-chart height="180" aria-label="Inbound EDDN messages over time"></canvas>
       </div>
       <p class="muted" data-inbound-empty>No inbound messages recorded in this dashboard process yet.</p>
+    </section>
+  `;
+}
+
+function renderRoutePlannerSection(): string {
+  return `
+    <section class="route-planner" data-tab-panel="route-planner" aria-labelledby="route-planner-tab-title" hidden>
+      <div class="section route-shell">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Route Planner</p>
+            <h2 id="route-planner-tab-title">Nearby Systems Map</h2>
+          </div>
+          <span class="pill">3D disabled by default</span>
+        </div>
+        <div class="route-layout">
+          <aside class="route-controls">
+            <p class="muted">Enable the WebGL map when you want a local 3D view. It loads only after you ask for it.</p>
+            <button type="button" data-route-enable>Enable 3D map</button>
+            <div class="route-control-grid">
+              <label>
+                <span>System count</span>
+                <select data-route-limit>
+                  <option value="50">50 systems</option>
+                  <option value="100" selected>100 systems</option>
+                  <option value="250">250 systems</option>
+                  <option value="500">500 systems</option>
+                </select>
+              </label>
+              <label>
+                <span>Reference X</span>
+                <input type="number" step="0.01" value="0" data-route-origin-x>
+              </label>
+              <label>
+                <span>Reference Y</span>
+                <input type="number" step="0.01" value="0" data-route-origin-y>
+              </label>
+              <label>
+                <span>Reference Z</span>
+                <input type="number" step="0.01" value="0" data-route-origin-z>
+              </label>
+            </div>
+            <button type="button" class="secondary" data-route-load disabled>Load nearest systems</button>
+            <p class="muted" data-route-status>3D map disabled. No systems loaded.</p>
+            <p class="route-selected" data-route-selected>No system selected.</p>
+          </aside>
+          <div class="route-map-frame">
+            <canvas data-route-canvas hidden aria-label="3D view of nearby systems"></canvas>
+            <div class="route-map-placeholder">3D map is disabled</div>
+          </div>
+        </div>
+      </div>
     </section>
   `;
 }
@@ -323,6 +377,7 @@ function renderDocument(options: {
         border-bottom-color: transparent;
         border-radius: 8px 8px 0 0;
         color: var(--muted);
+        cursor: pointer;
         font-weight: 800;
         padding: 0.75rem 1rem;
         text-decoration: none;
@@ -331,10 +386,6 @@ function renderDocument(options: {
         color: var(--text);
         border-color: var(--accent);
         border-bottom-color: var(--line);
-      }
-      .tab.disabled {
-        cursor: not-allowed;
-        opacity: 0.55;
       }
       .visually-hidden {
         height: 1px;
@@ -360,6 +411,9 @@ function renderDocument(options: {
         display: grid;
         gap: 1rem;
         grid-template-columns: repeat(2, minmax(0, 1fr));
+        padding: 1rem 2rem 2rem;
+      }
+      .route-planner {
         padding: 1rem 2rem 2rem;
       }
       .section {
@@ -444,6 +498,54 @@ function renderDocument(options: {
         height: 12rem;
         width: 100%;
       }
+      .route-shell {
+        min-height: 36rem;
+      }
+      .route-layout {
+        display: grid;
+        gap: 1rem;
+        grid-template-columns: minmax(16rem, 22rem) minmax(0, 1fr);
+      }
+      .route-controls {
+        display: grid;
+        gap: 1rem;
+        align-content: start;
+      }
+      .route-control-grid {
+        display: grid;
+        gap: 0.75rem;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .route-selected {
+        background: var(--panel-strong);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        color: var(--text);
+        padding: 0.75rem;
+      }
+      .route-map-frame {
+        background: #090c12;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        min-height: 28rem;
+        overflow: hidden;
+        position: relative;
+      }
+      canvas[data-route-canvas] {
+        display: block;
+        height: 28rem;
+        width: 100%;
+      }
+      canvas[data-route-canvas]:not([hidden]) + .route-map-placeholder {
+        display: none;
+      }
+      .route-map-placeholder {
+        color: var(--muted);
+        display: grid;
+        inset: 0;
+        place-items: center;
+        position: absolute;
+      }
       .pill, .status {
         border-radius: 999px;
         border: 1px solid var(--line);
@@ -490,6 +592,15 @@ function renderDocument(options: {
         .dashboard-grid {
           grid-template-columns: 1fr;
           padding: 1rem;
+        }
+        .route-planner {
+          padding: 1rem;
+        }
+        .route-layout {
+          grid-template-columns: 1fr;
+        }
+        .route-control-grid {
+          grid-template-columns: 1fr;
         }
         .metric-grid, .freshness {
           grid-template-columns: 1fr;

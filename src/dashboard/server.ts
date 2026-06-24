@@ -13,7 +13,12 @@ import {
   verifyPasswordHash,
 } from "./index";
 import type { InboundMessageTracker } from "./inbound_messages";
-import { DASHBOARD_SCRIPT, HTMX_SCRIPT } from "./web/assets";
+import {
+  DASHBOARD_SCRIPT,
+  HTMX_SCRIPT,
+  ROUTE_PLANNER_SCRIPT,
+  THREE_MODULE_SCRIPT,
+} from "./web/assets";
 import {
   renderDashboardPage,
   renderLoginPage,
@@ -63,6 +68,15 @@ interface DashboardStatsRow {
   readonly systems: string | number;
 }
 
+interface RoutePlannerSystemRow {
+  readonly distance: string | number;
+  readonly id: string | number;
+  readonly name: string;
+  readonly x: string | number;
+  readonly y: string | number;
+  readonly z: string | number;
+}
+
 export async function startDashboardServer(
   options: DashboardServerOptions,
 ): Promise<DashboardServerHandle> {
@@ -98,6 +112,20 @@ export async function startDashboardServer(
   app.get("/dashboard/assets/dashboard.js", (context) => {
     return context.body(DASHBOARD_SCRIPT, 200, {
       "Cache-Control": "no-store",
+      "Content-Type": "text/javascript; charset=utf-8",
+    });
+  });
+
+  app.get("/dashboard/assets/route-planner.js", (context) => {
+    return context.body(ROUTE_PLANNER_SCRIPT, 200, {
+      "Cache-Control": "no-store",
+      "Content-Type": "text/javascript; charset=utf-8",
+    });
+  });
+
+  app.get("/dashboard/assets/three.module.js", (context) => {
+    return context.body(THREE_MODULE_SCRIPT, 200, {
+      "Cache-Control": "public, max-age=31536000, immutable",
       "Content-Type": "text/javascript; charset=utf-8",
     });
   });
@@ -190,6 +218,53 @@ export async function startDashboardServer(
     );
   });
 
+  app.get("/dashboard/data/route-planner/systems", async (context) => {
+    const session = readSession(context.req.header("Cookie"), sessionSecret);
+
+    if (!session) {
+      return context.json({ error: "Unauthorized" }, 401);
+    }
+
+    const origin = {
+      x: readQueryNumber(context.req.query("x"), 0),
+      y: readQueryNumber(context.req.query("y"), 0),
+      z: readQueryNumber(context.req.query("z"), 0),
+    };
+    const limit = readRoutePlannerLimit(context.req.query("limit"));
+    const result = await options.database.query<RoutePlannerSystemRow>(
+      `
+        SELECT
+          id::text,
+          name,
+          x,
+          y,
+          z,
+          sqrt(
+            power(x - $1::double precision, 2) +
+            power(y - $2::double precision, 2) +
+            power(z - $3::double precision, 2)
+          ) AS distance
+        FROM systems
+        ORDER BY distance ASC
+        LIMIT $4
+      `,
+      [origin.x, origin.y, origin.z, limit],
+    );
+
+    return context.json({
+      limit,
+      origin,
+      systems: result.rows.map((row) => ({
+        distance: readOptionalNumber(row.distance) ?? 0,
+        id: String(row.id),
+        name: row.name,
+        x: readOptionalNumber(row.x) ?? 0,
+        y: readOptionalNumber(row.y) ?? 0,
+        z: readOptionalNumber(row.z) ?? 0,
+      })),
+    });
+  });
+
   app.post("/dashboard/admin/elevate", async (context) => {
     const session = readSession(context.req.header("Cookie"), sessionSecret);
 
@@ -270,6 +345,26 @@ function readSessionSecret(value: string | undefined): Buffer {
 
 function readRefreshSeconds(value: string | undefined): string {
   return value && DASHBOARD_REFRESH_SECONDS.has(value) ? value : "30";
+}
+
+function readQueryNumber(value: string | undefined, fallback: number): number {
+  if (!value) {
+    return fallback;
+  }
+
+  const parsedValue = Number.parseFloat(value);
+
+  return Number.isFinite(parsedValue) ? parsedValue : fallback;
+}
+
+function readRoutePlannerLimit(value: string | undefined): number {
+  const parsedLimit = value ? Number.parseInt(value, 10) : 100;
+
+  if (!Number.isInteger(parsedLimit)) {
+    return 100;
+  }
+
+  return Math.max(1, Math.min(parsedLimit, 500));
 }
 
 async function readDashboardStats(
