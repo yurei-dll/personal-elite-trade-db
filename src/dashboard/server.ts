@@ -16,7 +16,9 @@ import type { InboundMessageTracker } from "./inbound_messages";
 import {
   DASHBOARD_SCRIPT,
   HTMX_SCRIPT,
+  MARKET_BROWSER_SCRIPT,
   ROUTE_PLANNER_SCRIPT,
+  STATION_BROWSER_SCRIPT,
   THREE_CORE_SCRIPT,
   THREE_MODULE_SCRIPT,
 } from "./web/assets";
@@ -86,6 +88,63 @@ interface RoutePlannerSearchSystemRow {
   readonly z: string | number;
 }
 
+interface MarketBrowserSystemRow {
+  readonly id: string | number;
+  readonly name: string;
+  readonly x: string | number;
+  readonly y: string | number;
+  readonly z: string | number;
+}
+
+interface MarketBrowserStationRow {
+  readonly bought_commodity_count: string | number;
+  readonly distance_to_arrival: string | number | null;
+  readonly has_market: boolean;
+  readonly id: string | number;
+  readonly max_landing_pad_size: string | null;
+  readonly name: string;
+  readonly sold_commodity_count: string | number;
+  readonly type: string | null;
+  readonly updated_at: Date | string;
+}
+
+interface MarketBrowserCommodityRow {
+  readonly category: string | null;
+  readonly id: string;
+  readonly name: string;
+}
+
+interface StationBrowserSearchRow {
+  readonly id: string | number;
+  readonly name: string;
+  readonly system_name: string;
+}
+
+interface StationBrowserStationRow {
+  readonly distance_to_arrival: string | number | null;
+  readonly has_market: boolean;
+  readonly id: string | number;
+  readonly max_landing_pad_size: string | null;
+  readonly name: string;
+  readonly system_id: string | number;
+  readonly system_name: string;
+  readonly type: string | null;
+  readonly updated_at: Date | string;
+}
+
+interface StationBrowserCommodityRow {
+  readonly category: string | null;
+  readonly collected_at: Date | string;
+  readonly demand: string | number | null;
+  readonly demand_level: string | null;
+  readonly id: string;
+  readonly name: string;
+  readonly station_buy_price: string | number | null;
+  readonly station_sell_price: string | number | null;
+  readonly stock: string | number | null;
+  readonly stock_level: string | null;
+}
+
 export async function startDashboardServer(
   options: DashboardServerOptions,
 ): Promise<DashboardServerHandle> {
@@ -127,6 +186,20 @@ export async function startDashboardServer(
 
   app.get("/dashboard/assets/route-planner.js", (context) => {
     return context.body(ROUTE_PLANNER_SCRIPT, 200, {
+      "Cache-Control": "no-store",
+      "Content-Type": "text/javascript; charset=utf-8",
+    });
+  });
+
+  app.get("/dashboard/assets/market-browser.js", (context) => {
+    return context.body(MARKET_BROWSER_SCRIPT, 200, {
+      "Cache-Control": "no-store",
+      "Content-Type": "text/javascript; charset=utf-8",
+    });
+  });
+
+  app.get("/dashboard/assets/station-browser.js", (context) => {
+    return context.body(STATION_BROWSER_SCRIPT, 200, {
       "Cache-Control": "no-store",
       "Content-Type": "text/javascript; charset=utf-8",
     });
@@ -326,6 +399,299 @@ export async function startDashboardServer(
     });
   });
 
+  app.get("/dashboard/data/market-browser/system-search", async (context) => {
+    const session = readSession(context.req.header("Cookie"), sessionSecret);
+
+    if (!session) {
+      return context.json({ error: "Unauthorized" }, 401);
+    }
+
+    const query = readSystemSearchQuery(context.req.query("q"));
+
+    if (!query) {
+      return context.json({ systems: [] });
+    }
+
+    const result = await options.database.query<MarketBrowserSystemRow>(
+      `
+        SELECT
+          id::text,
+          name,
+          x,
+          y,
+          z
+        FROM systems
+        WHERE name ILIKE $1
+        ORDER BY
+          CASE
+            WHEN name ILIKE $2 THEN 0
+            ELSE 1
+          END,
+          name ASC
+        LIMIT 12
+      `,
+      [`%${query}%`, `${query}%`],
+    );
+
+    return context.json({
+      systems: result.rows.map((row) => ({
+        id: String(row.id),
+        name: row.name,
+        x: readOptionalNumber(row.x) ?? 0,
+        y: readOptionalNumber(row.y) ?? 0,
+        z: readOptionalNumber(row.z) ?? 0,
+      })),
+    });
+  });
+
+  app.get("/dashboard/data/market-browser/systems/:systemId", async (context) => {
+    const session = readSession(context.req.header("Cookie"), sessionSecret);
+
+    if (!session) {
+      return context.json({ error: "Unauthorized" }, 401);
+    }
+
+    const systemId = readIdParam(context.req.param("systemId"));
+
+    if (!systemId) {
+      return context.json({ error: "Invalid system id" }, 400);
+    }
+
+    const systemResult = await options.database.query<MarketBrowserSystemRow>(
+      `
+        SELECT
+          id::text,
+          name,
+          x,
+          y,
+          z
+        FROM systems
+        WHERE id = $1::bigint
+      `,
+      [systemId],
+    );
+    const systemRow = systemResult.rows[0];
+
+    if (!systemRow) {
+      return context.json({ error: "System not found" }, 404);
+    }
+
+    const [marketsResult, boughtResult, soldResult] = await Promise.all([
+      options.database.query<MarketBrowserStationRow>(
+        `
+          SELECT
+            stations.id::text,
+            stations.name,
+            stations.type,
+            stations.distance_to_arrival,
+            stations.max_landing_pad_size,
+            stations.has_market,
+            stations.updated_at,
+            count(DISTINCT station_commodities.commodity_id)
+              FILTER (WHERE station_commodities.station_buy_price > 0) AS bought_commodity_count,
+            count(DISTINCT station_commodities.commodity_id)
+              FILTER (WHERE station_commodities.station_sell_price > 0) AS sold_commodity_count
+          FROM stations
+          LEFT JOIN station_commodities
+            ON station_commodities.station_id = stations.id
+          WHERE stations.system_id = $1::bigint
+            AND stations.has_market = true
+          GROUP BY stations.id
+          ORDER BY stations.distance_to_arrival ASC NULLS LAST, stations.name ASC
+        `,
+        [systemId],
+      ),
+      options.database.query<MarketBrowserCommodityRow>(
+        `
+          SELECT DISTINCT
+            commodities.id,
+            commodities.name,
+            commodities.category
+          FROM stations
+          JOIN station_commodities
+            ON station_commodities.station_id = stations.id
+          JOIN commodities
+            ON commodities.id = station_commodities.commodity_id
+          WHERE stations.system_id = $1::bigint
+            AND station_commodities.station_buy_price > 0
+          ORDER BY commodities.name ASC
+        `,
+        [systemId],
+      ),
+      options.database.query<MarketBrowserCommodityRow>(
+        `
+          SELECT DISTINCT
+            commodities.id,
+            commodities.name,
+            commodities.category
+          FROM stations
+          JOIN station_commodities
+            ON station_commodities.station_id = stations.id
+          JOIN commodities
+            ON commodities.id = station_commodities.commodity_id
+          WHERE stations.system_id = $1::bigint
+            AND station_commodities.station_sell_price > 0
+          ORDER BY commodities.name ASC
+        `,
+        [systemId],
+      ),
+    ]);
+
+    return context.json({
+      commoditiesBought: boughtResult.rows.map(formatCommodityRow),
+      commoditiesSold: soldResult.rows.map(formatCommodityRow),
+      markets: marketsResult.rows.map((row) => ({
+        boughtCommodityCount: readOptionalNumber(row.bought_commodity_count) ?? 0,
+        distanceToArrival: readOptionalNumber(row.distance_to_arrival),
+        hasMarket: row.has_market,
+        id: String(row.id),
+        maxLandingPadSize: row.max_landing_pad_size,
+        name: row.name,
+        soldCommodityCount: readOptionalNumber(row.sold_commodity_count) ?? 0,
+        type: row.type,
+        updatedAt: formatJsonDate(row.updated_at),
+      })),
+      system: {
+        id: String(systemRow.id),
+        name: systemRow.name,
+        x: readOptionalNumber(systemRow.x) ?? 0,
+        y: readOptionalNumber(systemRow.y) ?? 0,
+        z: readOptionalNumber(systemRow.z) ?? 0,
+      },
+    });
+  });
+
+  app.get("/dashboard/data/station-browser/station-search", async (context) => {
+    const session = readSession(context.req.header("Cookie"), sessionSecret);
+
+    if (!session) {
+      return context.json({ error: "Unauthorized" }, 401);
+    }
+
+    const query = readSystemSearchQuery(context.req.query("q"));
+
+    if (!query) {
+      return context.json({ stations: [] });
+    }
+
+    const result = await options.database.query<StationBrowserSearchRow>(
+      `
+        SELECT
+          stations.id::text,
+          stations.name,
+          systems.name AS system_name
+        FROM stations
+        JOIN systems
+          ON systems.id = stations.system_id
+        WHERE stations.name ILIKE $1
+        ORDER BY
+          CASE
+            WHEN stations.name ILIKE $2 THEN 0
+            ELSE 1
+          END,
+          stations.name ASC,
+          systems.name ASC
+        LIMIT 12
+      `,
+      [`%${query}%`, `${query}%`],
+    );
+
+    return context.json({
+      stations: result.rows.map((row) => ({
+        id: String(row.id),
+        name: row.name,
+        systemName: row.system_name,
+      })),
+    });
+  });
+
+  app.get("/dashboard/data/station-browser/stations/:stationId", async (context) => {
+    const session = readSession(context.req.header("Cookie"), sessionSecret);
+
+    if (!session) {
+      return context.json({ error: "Unauthorized" }, 401);
+    }
+
+    const stationId = readIdParam(context.req.param("stationId"));
+
+    if (!stationId) {
+      return context.json({ error: "Invalid station id" }, 400);
+    }
+
+    const stationResult = await options.database.query<StationBrowserStationRow>(
+      `
+        SELECT
+          stations.id::text,
+          stations.name,
+          stations.system_id::text,
+          systems.name AS system_name,
+          stations.type,
+          stations.distance_to_arrival,
+          stations.max_landing_pad_size,
+          stations.has_market,
+          stations.updated_at
+        FROM stations
+        JOIN systems
+          ON systems.id = stations.system_id
+        WHERE stations.id = $1::bigint
+      `,
+      [stationId],
+    );
+    const stationRow = stationResult.rows[0];
+
+    if (!stationRow) {
+      return context.json({ error: "Station not found" }, 404);
+    }
+
+    const commoditiesResult = await options.database.query<StationBrowserCommodityRow>(
+      `
+        SELECT
+          commodities.id,
+          commodities.name,
+          commodities.category,
+          station_commodities.station_buy_price,
+          station_commodities.station_sell_price,
+          station_commodities.demand,
+          station_commodities.demand_level,
+          station_commodities.stock,
+          station_commodities.stock_level,
+          station_commodities.collected_at
+        FROM station_commodities
+        JOIN commodities
+          ON commodities.id = station_commodities.commodity_id
+        WHERE station_commodities.station_id = $1::bigint
+        ORDER BY commodities.name ASC
+      `,
+      [stationId],
+    );
+
+    return context.json({
+      commodities: commoditiesResult.rows.map((row) => ({
+        category: row.category,
+        collectedAt: formatJsonDate(row.collected_at),
+        demand: readOptionalNumber(row.demand),
+        demandLevel: row.demand_level,
+        id: row.id,
+        name: row.name,
+        stationBuyPrice: readOptionalNumber(row.station_buy_price),
+        stationSellPrice: readOptionalNumber(row.station_sell_price),
+        stock: readOptionalNumber(row.stock),
+        stockLevel: row.stock_level,
+      })),
+      station: {
+        distanceToArrival: readOptionalNumber(stationRow.distance_to_arrival),
+        hasMarket: stationRow.has_market,
+        id: String(stationRow.id),
+        maxLandingPadSize: stationRow.max_landing_pad_size,
+        name: stationRow.name,
+        systemId: String(stationRow.system_id),
+        systemName: stationRow.system_name,
+        type: stationRow.type,
+        updatedAt: formatJsonDate(stationRow.updated_at),
+      },
+    });
+  });
+
   app.post("/dashboard/admin/elevate", async (context) => {
     const session = readSession(context.req.header("Cookie"), sessionSecret);
 
@@ -430,6 +796,34 @@ function readRoutePlannerLimit(value: string | undefined): number {
 
 function readRoutePlannerSearchQuery(value: string | undefined): string {
   return value?.trim().slice(0, 80) ?? "";
+}
+
+function readSystemSearchQuery(value: string | undefined): string {
+  return value?.trim().slice(0, 80) ?? "";
+}
+
+function readIdParam(value: string | undefined): string | undefined {
+  if (!value || !/^\d+$/u.test(value)) {
+    return undefined;
+  }
+
+  return value;
+}
+
+function formatCommodityRow(row: MarketBrowserCommodityRow): {
+  readonly category: string | null;
+  readonly id: string;
+  readonly name: string;
+} {
+  return {
+    category: row.category,
+    id: row.id,
+    name: row.name,
+  };
+}
+
+function formatJsonDate(value: Date | string): string {
+  return value instanceof Date ? value.toISOString() : value;
 }
 
 async function readDashboardStats(

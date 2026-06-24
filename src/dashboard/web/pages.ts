@@ -62,6 +62,8 @@ export function renderDashboardPage(options: {
       <nav class="tabs" aria-label="Dashboard sections">
         <button class="tab active" type="button" data-dashboard-tab="dashboard" aria-selected="true">Dashboard</button>
         <button class="tab" type="button" data-dashboard-tab="route-planner" aria-selected="false">Route Planner</button>
+        <button class="tab" type="button" data-dashboard-tab="market-browser" aria-selected="false">System Browser</button>
+        <button class="tab" type="button" data-dashboard-tab="station-browser" aria-selected="false">Station Browser</button>
       </nav>
       <main>
         <section class="dashboard-grid" data-tab-panel="dashboard" aria-labelledby="dashboard-tab-title">
@@ -72,10 +74,14 @@ export function renderDashboardPage(options: {
           ${renderAdminSection(options.session, options.adminMessage)}
         </section>
         ${renderRoutePlannerSection()}
+        ${renderMarketBrowserSection()}
+        ${renderStationBrowserSection()}
       </main>
       <script src="/dashboard/assets/htmx.min.js"></script>
       <script src="/dashboard/assets/dashboard.js"></script>
       <script src="/dashboard/assets/route-planner.js"></script>
+      <script src="/dashboard/assets/market-browser.js"></script>
+      <script src="/dashboard/assets/station-browser.js"></script>
     `,
     title: "Command Dashboard",
   });
@@ -206,6 +212,116 @@ function renderRoutePlannerSection(): string {
             <div class="route-map-placeholder">3D map is disabled</div>
           </div>
         </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderMarketBrowserSection(): string {
+  return `
+    <section class="market-browser" data-tab-panel="market-browser" aria-labelledby="market-browser-tab-title" hidden>
+      <div class="section market-shell">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">System Browser</p>
+            <h2 id="market-browser-tab-title">System Markets</h2>
+          </div>
+          <span class="pill" data-market-status>Search a system</span>
+        </div>
+        <div class="market-search-row">
+          <label>
+            <span>System</span>
+            <input type="search" list="market-system-results" placeholder="Search systems..." autocomplete="off" data-market-system-search>
+            <datalist id="market-system-results" data-market-system-results></datalist>
+          </label>
+          <button type="button" class="secondary" data-market-load>Load markets</button>
+        </div>
+        <div class="market-summary" data-market-summary>
+          <p class="muted">Select a system to see its markets and the unique commodities bought and sold there.</p>
+        </div>
+        <div class="market-layout">
+          <section class="market-panel">
+            <h3>Markets</h3>
+            <div class="table-shell">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Station</th>
+                    <th>Type</th>
+                    <th>Pad</th>
+                    <th>Arrival</th>
+                    <th>Bought</th>
+                    <th>Sold</th>
+                    <th>Updated</th>
+                  </tr>
+                </thead>
+                <tbody data-market-stations>
+                  <tr><td colspan="7" class="empty-table">No system selected.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+          <section class="market-panel">
+            <h3>Unique Commodities Bought</h3>
+            <ul class="commodity-list" data-market-bought>
+              <li class="muted">No system selected.</li>
+            </ul>
+          </section>
+          <section class="market-panel">
+            <h3>Unique Commodities Sold</h3>
+            <ul class="commodity-list" data-market-sold>
+              <li class="muted">No system selected.</li>
+            </ul>
+          </section>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderStationBrowserSection(): string {
+  return `
+    <section class="station-browser" data-tab-panel="station-browser" aria-labelledby="station-browser-tab-title" hidden>
+      <div class="section market-shell">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Station Browser</p>
+            <h2 id="station-browser-tab-title">Station Detail</h2>
+          </div>
+          <span class="pill" data-station-status>Search a station</span>
+        </div>
+        <div class="market-search-row">
+          <label>
+            <span>Station</span>
+            <input type="search" list="station-search-results" placeholder="Search stations..." autocomplete="off" data-station-search>
+            <datalist id="station-search-results" data-station-results></datalist>
+          </label>
+          <button type="button" class="secondary" data-station-load>Load station</button>
+        </div>
+        <div class="market-summary" data-station-summary>
+          <p class="muted">Select a station from search or jump here from the System Browser.</p>
+        </div>
+        <section class="market-panel">
+          <h3>Station Commodities</h3>
+          <div class="table-shell">
+            <table>
+              <thead>
+                <tr>
+                  <th>Commodity</th>
+                  <th>Category</th>
+                  <th>Buys For</th>
+                  <th>Sells For</th>
+                  <th>Demand</th>
+                  <th>Stock</th>
+                  <th>Collected</th>
+                </tr>
+              </thead>
+              <tbody data-station-commodities>
+                <tr><td colspan="7" class="empty-table">No station selected.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
       </div>
     </section>
   `;
@@ -416,6 +532,12 @@ function renderDocument(options: {
       .route-planner {
         padding: 1rem 2rem 2rem;
       }
+      .market-browser {
+        padding: 1rem 2rem 2rem;
+      }
+      .station-browser {
+        padding: 1rem 2rem 2rem;
+      }
       .section {
         background: rgba(17, 20, 28, 0.9);
         border: 1px solid var(--line);
@@ -566,6 +688,108 @@ function renderDocument(options: {
         white-space: nowrap;
         z-index: 2;
       }
+      .market-shell {
+        display: grid;
+        gap: 1rem;
+      }
+      .market-search-row {
+        align-items: end;
+        display: grid;
+        gap: 0.75rem;
+        grid-template-columns: minmax(16rem, 1fr) auto;
+      }
+      .market-summary {
+        background: var(--panel-strong);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0.85rem;
+      }
+      .market-summary strong {
+        display: block;
+        font-size: 1.1rem;
+      }
+      .market-summary dl {
+        display: grid;
+        gap: 0.65rem;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        margin: 0.85rem 0 0;
+      }
+      .market-summary dt {
+        color: var(--muted);
+        font-size: 0.78rem;
+      }
+      .market-summary dd {
+        margin: 0.2rem 0 0;
+      }
+      .market-layout {
+        display: grid;
+        gap: 1rem;
+        grid-template-columns: minmax(0, 2fr) minmax(14rem, 1fr) minmax(14rem, 1fr);
+      }
+      .market-panel {
+        background: #090c12;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        min-width: 0;
+        padding: 1rem;
+      }
+      .market-panel h3 {
+        font-size: 1rem;
+        margin: 0 0 0.75rem;
+      }
+      .table-shell {
+        overflow-x: auto;
+      }
+      table {
+        border-collapse: collapse;
+        min-width: 48rem;
+        width: 100%;
+      }
+      th, td {
+        border-bottom: 1px solid var(--line);
+        padding: 0.55rem;
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        color: var(--muted);
+        font-size: 0.78rem;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+      .station-link {
+        background: transparent;
+        border: 0;
+        border-radius: 0;
+        color: var(--accent);
+        cursor: pointer;
+        font: inherit;
+        font-weight: 800;
+        padding: 0;
+        text-align: left;
+      }
+      .station-link:hover {
+        text-decoration: underline;
+      }
+      .empty-table {
+        color: var(--muted);
+        text-align: center;
+      }
+      .commodity-list {
+        display: grid;
+        gap: 0.45rem;
+        list-style: none;
+        margin: 0;
+        max-height: 30rem;
+        overflow: auto;
+        padding: 0;
+      }
+      .commodity-list li {
+        background: var(--panel-strong);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0.55rem 0.65rem;
+      }
       .pill, .status {
         border-radius: 999px;
         border: 1px solid var(--line);
@@ -616,7 +840,18 @@ function renderDocument(options: {
         .route-planner {
           padding: 1rem;
         }
+        .market-browser {
+          padding: 1rem;
+        }
+        .station-browser {
+          padding: 1rem;
+        }
         .route-layout {
+          grid-template-columns: 1fr;
+        }
+        .market-search-row,
+        .market-layout,
+        .market-summary dl {
           grid-template-columns: 1fr;
         }
         .route-control-grid {
