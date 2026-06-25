@@ -1,4 +1,4 @@
-import type { AppConfig } from "../config";
+import type { AppConfig } from "../../config";
 
 export type DashboardAuthRole = "dashboard" | "admin";
 

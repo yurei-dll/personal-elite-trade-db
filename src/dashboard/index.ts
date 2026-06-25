@@ -1,8 +1,8 @@
 export {
   createDashboardAuthManager,
   createDashboardAuthOptions,
-} from "./auth";
-export { hashPassword, verifyPasswordHash } from "./password_hash";
+} from "./auth/auth";
+export { hashPassword, verifyPasswordHash } from "./auth/password_hash";
 export { createInboundMessageTracker } from "./inbound_messages";
 export { startDashboardServer } from "./server";
 export type {
@@ -17,4 +17,4 @@ export type {
   DashboardAuthOptions,
   DashboardAuthRole,
   PasswordHashVerifier,
-} from "./auth";
+} from "./auth/auth";
