@@ -169,10 +169,19 @@
     updatePlannerPlanetaryEndpoint("source", false);
     updatePlannerPlanetaryEndpoint("destination", false);
     updatePlannerCashflow(undefined);
+    setPlannerPickupLabel(plannerState.pickup?.name || "Select system");
     resetPlannerReturnTimeline();
 
     if (typeof message === "string" && track) {
       track.replaceChildren(renderPlannerMessage(message));
+    }
+  }
+
+  function setPlannerPickupLabel(message) {
+    const label = select("[data-planner-pickup-label]");
+
+    if (label) {
+      label.textContent = message;
     }
   }
 
@@ -446,10 +455,19 @@
     }
 
     const jumps = Math.max(1, Number(route.jumps) || 1);
-    const routePoints = readPlannerRoutePoints(route);
-    const hops = routePoints.slice(1).map((point, index) => ({
-      meta: formatNumber(calculateRouteDistance(routePoints[index], point)) + " ly",
+    const waypoints = readPlannerWaypoints(route);
+    const routePoints = [
+      plannerState.pickup,
+      ...waypoints,
+      {
+        ...route.destination,
+        name: route.destination.systemName,
+      },
+    ];
+    const segmentCount = Math.max(1, routePoints.length - 1);
+    const hops = waypoints.map((point, index) => ({
       name: point.name || point.systemName || "Unknown system",
+      position: ((index + 1) / segmentCount) * 100,
       x: point.x,
       y: point.y,
       z: point.z,
@@ -457,8 +475,9 @@
     const bracket = createElement("div", { className: "timeline-bracket" }, [
       createElement("span", {}, formatNumber(route.distance) + " ly total"),
     ]);
+    const segmentLabels = renderPlannerSegmentLabels(routePoints, false);
 
-    track.replaceChildren(bracket, ...hops.map((hop) => renderPlannerHop(hop)));
+    track.replaceChildren(bracket, ...segmentLabels, ...hops.map((hop) => renderPlannerHop(hop)));
 
     plannerState.route = route;
     updatePlannerCopyButtons(route);
@@ -466,8 +485,36 @@
     updatePlannerPlanetaryEndpoint("destination", Boolean(route.destination?.isPlanetary));
     renderPlannerReturnTimeline(route);
     updatePlannerCashflow(route);
-    setPlannerBuyerLabel(route.destination.systemName);
+    setPlannerEndpointLabels(route);
     updatePlannerRouteStatus(route, jumps);
+  }
+
+  function setPlannerEndpointLabels(route) {
+    const pickupLabel = select("[data-planner-pickup-label]");
+
+    if (pickupLabel) {
+      pickupLabel.textContent = formatPlannerStationLabel(route.source?.stationName, plannerState.pickup?.name, route.source?.distanceToArrival);
+    }
+
+    setPlannerBuyerLabel(formatPlannerStationLabel(route.destination?.stationName, route.destination?.systemName, route.destination?.distanceToArrival));
+  }
+
+  function formatPlannerStationLabel(stationName, systemName, distanceToArrival) {
+    const parts = [];
+
+    if (stationName) {
+      parts.push(stationName);
+    }
+
+    if (systemName) {
+      parts.push(systemName);
+    }
+
+    if (typeof distanceToArrival === "number") {
+      parts.push(formatNumber(distanceToArrival) + " ls");
+    }
+
+    return parts.join(" | ") || "Unknown market";
   }
 
   function updatePlannerRouteStatus(route, jumps) {
@@ -513,15 +560,8 @@
     badge.textContent = formatSignedCredits(value);
   }
 
-  function readPlannerRoutePoints(route) {
-    return [
-      plannerState.pickup,
-      ...(Array.isArray(route.waypoints) ? route.waypoints : []),
-      {
-        ...route.destination,
-        name: route.destination.systemName,
-      },
-    ];
+  function readPlannerWaypoints(route) {
+    return Array.isArray(route.waypoints) ? route.waypoints : [];
   }
 
   function calculateRouteDistance(from, to) {
@@ -542,7 +582,7 @@
     }
 
     if (endLabel) {
-      endLabel.textContent = "Original station";
+      endLabel.textContent = "Pickup system";
     }
 
     if (track) {
@@ -559,13 +599,19 @@
       return;
     }
 
-    const returnSummary = route.returnHaul
-      ? route.returnHaul.commodity.name + " | " + formatSignedCredits(route.returnHaul.profit ?? 0)
-      : "No return haul found";
-    const routePoints = readPlannerRoutePoints(route).slice().reverse();
-    const returnHops = routePoints.slice(1).map((point, index) => ({
-      meta: formatNumber(calculateRouteDistance(routePoints[index], point)) + " ly",
+    const returnWaypoints = readPlannerWaypoints(route).slice().reverse();
+    const returnPoints = [
+      {
+        ...route.destination,
+        name: route.destination.systemName,
+      },
+      ...returnWaypoints,
+      plannerState.pickup,
+    ];
+    const segmentCount = Math.max(1, returnPoints.length - 1);
+    const returnHops = returnWaypoints.map((point, index) => ({
       name: point.name || point.systemName || "Unknown system",
+      position: ((segmentCount - index - 1) / segmentCount) * 100,
       x: point.x,
       y: point.y,
       z: point.z,
@@ -573,16 +619,32 @@
     const bracket = createElement("div", { className: "timeline-bracket" }, [
       createElement("span", {}, formatNumber(route.distance) + " ly return"),
     ]);
+    const segmentLabels = renderPlannerSegmentLabels(returnPoints, true);
 
     if (startLabel) {
-      startLabel.textContent = returnSummary;
+      startLabel.textContent = route.returnHaul?.commodity?.name || "No return haul";
     }
 
     if (endLabel) {
-      endLabel.textContent = route.source.stationName + " | " + plannerState.pickup.name;
+      endLabel.textContent = plannerState.pickup.name;
     }
 
-    track.replaceChildren(bracket, ...returnHops.map((hop) => renderPlannerHop(hop)));
+    track.replaceChildren(bracket, ...segmentLabels, ...returnHops.map((hop) => renderPlannerHop(hop)));
+  }
+
+  function renderPlannerSegmentLabels(points, isReturn) {
+    const segmentCount = Math.max(1, points.length - 1);
+
+    return points.slice(1).map((point, index) => {
+      const previousPoint = points[index];
+      const position = isReturn
+        ? ((segmentCount - index - 0.5) / segmentCount) * 100
+        : ((index + 0.5) / segmentCount) * 100;
+      const label = createElement("span", { className: "timeline-segment-distance" }, formatNumber(calculateRouteDistance(previousPoint, point)) + " ly");
+
+      label.style.setProperty("--timeline-position", String(position) + "%");
+      return label;
+    });
   }
 
   function createElement(tagName, options, children) {
@@ -615,12 +677,12 @@
 
     button.type = "button";
     button.className = "timeline-hop";
-    button.dataset.distance = hop.meta || "";
+    button.style.setProperty("--timeline-position", String(hop.position ?? 50) + "%");
     dot.className = "timeline-dot";
     name.className = "timeline-name";
     meta.className = "timeline-meta";
     name.textContent = hop.name;
-    meta.textContent = hop.meta || (formatNumber(hop.x) + ", " + formatNumber(hop.y) + ", " + formatNumber(hop.z));
+    meta.textContent = formatNumber(hop.x) + ", " + formatNumber(hop.y) + ", " + formatNumber(hop.z);
     button.append(dot, name, meta);
     button.addEventListener("click", () => {
       document.querySelectorAll(".timeline-hop.expanded").forEach((node) => {

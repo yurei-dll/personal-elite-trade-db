@@ -117,6 +117,7 @@ interface RoutePlannerTradeRouteRow {
   readonly commodity_id: string;
   readonly commodity_name: string;
   readonly destination_collected_at: Date | string;
+  readonly destination_distance_to_arrival: string | number | null;
   readonly demand: string | number | null;
   readonly destination_station_id: string | number;
   readonly destination_station_name: string;
@@ -130,6 +131,7 @@ interface RoutePlannerTradeRouteRow {
   readonly profit: string | number | null;
   readonly source_station_id: string | number;
   readonly source_station_name: string;
+  readonly source_distance_to_arrival: string | number | null;
   readonly source_is_planetary: boolean | null;
   readonly source_collected_at: Date | string;
   readonly station_buy_price: string | number | null;
@@ -576,6 +578,7 @@ export async function startDashboardServer(
       isPlanetary: row.destination_is_planetary === true,
       collectedAt: formatJsonDate(row.destination_collected_at),
       demand: readOptionalNumber(row.demand),
+      distanceToArrival: readOptionalNumber(row.destination_distance_to_arrival),
       stationId: String(row.destination_station_id),
       stationName: row.destination_station_name,
       systemId: String(row.destination_system_id),
@@ -617,6 +620,7 @@ export async function startDashboardServer(
         profit: readOptionalNumber(row.profit),
         source: {
           isPlanetary: row.source_is_planetary === true,
+          distanceToArrival: readOptionalNumber(row.source_distance_to_arrival),
           stationId: String(row.source_station_id),
           stationName: row.source_station_name,
           stationSellPrice: readOptionalNumber(row.station_sell_price),
@@ -677,6 +681,7 @@ export async function startDashboardServer(
       isPlanetary: row.destination_is_planetary === true,
       collectedAt: formatJsonDate(row.destination_collected_at),
       demand: readOptionalNumber(row.demand),
+      distanceToArrival: readOptionalNumber(row.destination_distance_to_arrival),
       stationId: String(row.destination_station_id),
       stationName: row.destination_station_name,
       systemId: String(row.destination_system_id),
@@ -718,6 +723,7 @@ export async function startDashboardServer(
         profit: readOptionalNumber(row.profit),
         source: {
           isPlanetary: row.source_is_planetary === true,
+          distanceToArrival: readOptionalNumber(row.source_distance_to_arrival),
           stationId: String(row.source_station_id),
           stationName: row.source_station_name,
           stationSellPrice: readOptionalNumber(row.station_sell_price),

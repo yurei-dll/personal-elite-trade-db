@@ -350,34 +350,19 @@ canvas[data-inbound-chart] {
   background: rgba(123, 242, 196, 0.55);
 }
 .timeline-hop::after {
-  background: #090c12;
-  border: 1px solid rgba(72, 215, 255, 0.38);
-  border-radius: 999px;
-  color: var(--accent);
-  content: attr(data-distance) " →";
-  font-size: 0.7rem;
-  font-weight: 900;
-  line-height: 1;
-  padding: 0.18rem 0.35rem;
-  position: absolute;
-  right: -1.25rem;
-  top: calc(50% - 1.55rem);
-  white-space: nowrap;
-  z-index: 3;
+  display: none;
 }
 .planner-return-timeline .timeline-hop::after {
-  border-color: rgba(123, 242, 196, 0.38);
-  color: var(--accent-strong);
-  content: "← " attr(data-distance);
+  display: none;
 }
 .timeline-hop:last-child::after {
-  content: "";
+  display: none;
 }
 .planner-return-timeline .timeline-hop:last-child::after {
-  content: "←";
+  display: none;
 }
 .planner-return-timeline .timeline-hop:first-child::after {
-  content: "";
+  display: none;
 }
 .planner-return-timeline .timeline-dot {
   background: var(--accent-strong);
@@ -456,7 +441,7 @@ canvas[data-inbound-chart] {
   background: var(--panel-strong);
   border: 1px solid var(--line);
   border-radius: 8px;
-  min-height: 7.8rem;
+  min-height: 8.4rem;
   padding: 0.65rem;
 }
 .timeline-node.endpoint.planetary {
@@ -471,6 +456,7 @@ canvas[data-inbound-chart] {
 }
 .timeline-node.endpoint small {
   left: 0.65rem;
+  line-height: 1.15;
   position: absolute;
   right: 0.65rem;
   top: 1.75rem;
@@ -517,7 +503,7 @@ canvas[data-inbound-chart] {
   padding: 0.22rem 0.45rem;
   position: absolute;
   text-overflow: ellipsis;
-  top: 4.3rem;
+  top: 4.75rem;
   transform: translateX(-50%);
   white-space: nowrap;
   z-index: 2;
@@ -553,11 +539,14 @@ canvas[data-inbound-chart] {
   border: 0;
   color: var(--text);
   display: block;
-  flex: 1 1 0;
-  min-width: 2.75rem;
-  padding: 0;
-  position: relative;
   height: 5.5rem;
+  left: var(--timeline-position, 50%);
+  min-width: 3.5rem;
+  padding: 0;
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  width: min(5rem, 22%);
   z-index: 1;
 }
 .timeline-hop .timeline-dot {
@@ -595,6 +584,27 @@ canvas[data-inbound-chart] {
 .timeline-hop:focus-visible .timeline-name {
   opacity: 1;
   transform: translate(-50%, 0);
+}
+.timeline-segment-distance {
+  background: #090c12;
+  border: 1px solid rgba(72, 215, 255, 0.38);
+  border-radius: 999px;
+  color: var(--accent);
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 900;
+  left: var(--timeline-position, 50%);
+  line-height: 1;
+  padding: 0.18rem 0.35rem;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  z-index: 3;
+}
+.planner-return-timeline .timeline-segment-distance {
+  border-color: rgba(123, 242, 196, 0.38);
+  color: var(--accent-strong);
 }
 .timeline-meta {
   display: none;
@@ -985,12 +995,20 @@ th {
     top: 0;
   }
   .timeline-hop {
+    left: 0;
     min-height: 4rem;
+    top: var(--timeline-position, 50%);
+    transform: translateY(-50%);
     width: 100%;
   }
   .timeline-hop .timeline-dot {
     left: 50%;
     top: 50%;
+  }
+  .timeline-segment-distance {
+    left: 50%;
+    top: var(--timeline-position, 50%);
+    transform: translate(-50%, -160%);
   }
   .timeline-hop::after,
   .planner-return-timeline .timeline-hop::after,
