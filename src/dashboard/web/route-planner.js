@@ -150,12 +150,18 @@
     }
   }
 
-  function clearPlannerRoute() {
+  function clearPlannerRoute(message) {
+    const track = select("[data-planner-track]");
+
     plannerState.route = undefined;
     updatePlannerCopyButtons(undefined);
     updatePlannerPlanetaryEndpoint("source", false);
     updatePlannerPlanetaryEndpoint("destination", false);
     resetPlannerReturnTimeline();
+
+    if (typeof message === "string" && track) {
+      track.replaceChildren(renderPlannerMessage(message));
+    }
   }
 
   async function searchPlannerSystems(query) {
@@ -548,7 +554,7 @@
 
   function renderPlannerMessage(message) {
     const element = document.createElement("p");
-    element.className = "muted";
+    element.className = "muted timeline-message";
     element.textContent = message;
     return element;
   }
@@ -1163,7 +1169,7 @@
 
     if (plannerCommoditySelect instanceof HTMLSelectElement) {
       plannerCommoditySelect.addEventListener("change", () => {
-        clearPlannerRoute();
+        clearPlannerRoute("Route will be built when Build route is pressed.");
         setPlannerBuyerLabel("Best match");
         setPlannerStatus("Ready to build");
       });
@@ -1184,7 +1190,7 @@
     [plannerMaxRangeInput, plannerMaxJumpsInput, plannerPadSizeSelect, plannerIncludeFleetCarriersInput, plannerIncludePlanetaryInput].forEach((control) => {
       if (control) {
         control.addEventListener("change", () => {
-          clearPlannerRoute();
+          clearPlannerRoute("Route will be built when Build route is pressed.");
           setPlannerBuyerLabel("Best match");
           setPlannerStatus("Settings changed");
         });

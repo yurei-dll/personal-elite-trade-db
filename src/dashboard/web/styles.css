@@ -412,6 +412,15 @@ canvas[data-inbound-chart] {
   right: 0;
   top: 50%;
 }
+.timeline-message {
+  left: 0.75rem;
+  margin: 0;
+  position: absolute;
+  right: 0.75rem;
+  text-align: center;
+  top: calc(50% - 2rem);
+  z-index: 2;
+}
 .timeline-bracket {
   border-left: 1px solid var(--accent);
   border-right: 1px solid var(--accent);
@@ -854,6 +863,11 @@ th {
     right: auto;
     top: 0;
     width: 2px;
+  }
+  .timeline-message {
+    left: 0;
+    right: 0;
+    top: 0.2rem;
   }
   .timeline-bracket {
     border-bottom: 1px solid var(--accent);
