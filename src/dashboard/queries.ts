@@ -152,6 +152,7 @@ export function routePlannerTradeRouteQuery(options: {
   readonly includeFleetCarriers: boolean;
   readonly includePlanetary: boolean;
   readonly padSize: "M" | "L";
+  readonly requireDestinationDemand: boolean;
 }): string {
   return `
     WITH origin AS (
@@ -165,7 +166,8 @@ export function routePlannerTradeRouteQuery(options: {
         stations.name,
         ${buildPlanetaryPortExpression("stations")} AS is_planetary,
         station_commodities.station_sell_price,
-        station_commodities.stock
+        station_commodities.stock,
+        station_commodities.collected_at
       FROM stations
       JOIN station_commodities
         ON station_commodities.station_id = stations.id
@@ -191,6 +193,7 @@ export function routePlannerTradeRouteQuery(options: {
       source_offers.is_planetary AS source_is_planetary,
       source_offers.station_sell_price,
       source_offers.stock,
+      source_offers.collected_at AS source_collected_at,
       destination_stations.id::text AS destination_station_id,
       destination_stations.name AS destination_station_name,
       ${buildPlanetaryPortExpression("destination_stations")} AS destination_is_planetary,
@@ -200,6 +203,8 @@ export function routePlannerTradeRouteQuery(options: {
       destination_systems.y AS destination_y,
       destination_systems.z AS destination_z,
       destination_markets.station_buy_price,
+      destination_markets.demand,
+      destination_markets.collected_at AS destination_collected_at,
       destination_markets.station_buy_price - source_offers.station_sell_price AS profit,
       sqrt(
         power(destination_systems.x - origin.x, 2) +
@@ -220,6 +225,7 @@ export function routePlannerTradeRouteQuery(options: {
     WHERE destination_stations.has_market = true
       AND destination_stations.system_id <> origin.id
       AND destination_markets.station_buy_price > 0
+      AND ${buildDestinationDemandPredicate(options.requireDestinationDemand)}
       AND ${buildLandingPadPredicate("destination_stations", options.padSize)}
       AND ${buildFleetCarrierPredicate("destination_stations", options.includeFleetCarriers)}
       AND ${buildPlanetaryPortPredicate("destination_stations", options.includePlanetary)}
@@ -241,6 +247,7 @@ export function routePlannerBestTradeRouteQuery(options: {
   readonly includeFleetCarriers: boolean;
   readonly includePlanetary: boolean;
   readonly padSize: "M" | "L";
+  readonly requireDestinationDemand: boolean;
 }): string {
   return `
     WITH origin AS (
@@ -255,7 +262,8 @@ export function routePlannerBestTradeRouteQuery(options: {
         ${buildPlanetaryPortExpression("stations")} AS is_planetary,
         station_commodities.commodity_id,
         station_commodities.station_sell_price,
-        station_commodities.stock
+        station_commodities.stock,
+        station_commodities.collected_at
       FROM stations
       JOIN station_commodities
         ON station_commodities.station_id = stations.id
@@ -281,6 +289,7 @@ export function routePlannerBestTradeRouteQuery(options: {
       source_offers.is_planetary AS source_is_planetary,
       source_offers.station_sell_price,
       source_offers.stock,
+      source_offers.collected_at AS source_collected_at,
       destination_stations.id::text AS destination_station_id,
       destination_stations.name AS destination_station_name,
       ${buildPlanetaryPortExpression("destination_stations")} AS destination_is_planetary,
@@ -290,6 +299,8 @@ export function routePlannerBestTradeRouteQuery(options: {
       destination_systems.y AS destination_y,
       destination_systems.z AS destination_z,
       destination_markets.station_buy_price,
+      destination_markets.demand,
+      destination_markets.collected_at AS destination_collected_at,
       destination_markets.station_buy_price - source_offers.station_sell_price AS profit,
       sqrt(
         power(destination_systems.x - origin.x, 2) +
@@ -310,6 +321,7 @@ export function routePlannerBestTradeRouteQuery(options: {
     WHERE destination_stations.has_market = true
       AND destination_stations.system_id <> origin.id
       AND destination_markets.station_buy_price > 0
+      AND ${buildDestinationDemandPredicate(options.requireDestinationDemand)}
       AND ${buildLandingPadPredicate("destination_stations", options.padSize)}
       AND ${buildFleetCarrierPredicate("destination_stations", options.includeFleetCarriers)}
       AND ${buildPlanetaryPortPredicate("destination_stations", options.includePlanetary)}
@@ -341,9 +353,15 @@ export function marketBrowserStationsQuery(options: {
       stations.has_market,
       stations.updated_at,
       count(DISTINCT station_commodities.commodity_id)
-        FILTER (WHERE station_commodities.station_buy_price > 0) AS bought_commodity_count,
+        FILTER (
+          WHERE station_commodities.station_buy_price > 0
+            AND coalesce(station_commodities.demand, 0) > 0
+        ) AS bought_commodity_count,
       count(DISTINCT station_commodities.commodity_id)
-        FILTER (WHERE station_commodities.station_sell_price > 0) AS sold_commodity_count
+        FILTER (
+          WHERE station_commodities.station_sell_price > 0
+            AND coalesce(station_commodities.stock, 0) > 0
+        ) AS sold_commodity_count
     FROM stations
     LEFT JOIN station_commodities
       ON station_commodities.station_id = stations.id
@@ -359,12 +377,16 @@ export function marketBrowserStationsQuery(options: {
 export function marketBrowserCommoditiesQuery(options: {
   readonly includeFleetCarriers: boolean;
   readonly includePlanetary: boolean;
-  readonly tradeDirection: "buy" | "sell";
+  readonly stationTradeRole: "station_buys" | "station_sells";
 }): string {
   const priceColumn =
-    options.tradeDirection === "buy"
+    options.stationTradeRole === "station_buys"
       ? "station_buy_price"
       : "station_sell_price";
+  const availabilityPredicate =
+    options.stationTradeRole === "station_buys"
+      ? "coalesce(station_commodities.demand, 0) > 0"
+      : "coalesce(station_commodities.stock, 0) > 0";
 
   return `
     SELECT DISTINCT
@@ -379,18 +401,14 @@ export function marketBrowserCommoditiesQuery(options: {
     WHERE stations.system_id = $1::bigint
       AND stations.has_market = true
       AND station_commodities.${priceColumn} > 0
+      AND ${availabilityPredicate}
       AND ${buildFleetCarrierPredicate("stations", options.includeFleetCarriers)}
       AND ${buildPlanetaryPortPredicate("stations", options.includePlanetary)}
     ORDER BY commodities.name ASC
   `;
 }
 
-export function routePlannerWaypointsQuery(jumpCount: number): string {
-  const valuePlaceholders = Array.from(
-    { length: jumpCount },
-    (_, index) => `($${index + 6}::integer)`,
-  ).join(", ");
-
+export function routePlannerWaypointsQuery(): string {
   return `
     WITH origin AS (
       SELECT id, x, y, z
@@ -404,7 +422,7 @@ export function routePlannerWaypointsQuery(jumpCount: number): string {
         origin.y + (($3::double precision - origin.y) * jump_index / $5::double precision) AS target_y,
         origin.z + (($4::double precision - origin.z) * jump_index / $5::double precision) AS target_z
       FROM origin
-      CROSS JOIN (VALUES ${valuePlaceholders}) AS jumps(jump_index)
+      CROSS JOIN generate_series(1, greatest($5::integer - 1, 0)) AS jumps(jump_index)
     )
     SELECT
       targets.jump_index,
@@ -423,7 +441,7 @@ export function routePlannerWaypointsQuery(jumpCount: number): string {
       SELECT id, name, x, y, z
       FROM systems
       WHERE id <> $1::bigint
-        AND id <> $${jumpCount + 6}::bigint
+        AND id <> $6::bigint
       ORDER BY
         power(x - targets.target_x, 2) +
         power(y - targets.target_y, 2) +
@@ -438,6 +456,7 @@ export function routePlannerReturnHaulQuery(options: {
   readonly includeFleetCarriers: boolean;
   readonly includePlanetary: boolean;
   readonly padSize: "M" | "L";
+  readonly requireDestinationDemand: boolean;
 }): string {
   return `
     WITH source_offers AS (
@@ -447,7 +466,8 @@ export function routePlannerReturnHaulQuery(options: {
         ${buildPlanetaryPortExpression("stations")} AS is_planetary,
         station_commodities.commodity_id,
         station_commodities.station_sell_price,
-        station_commodities.stock
+        station_commodities.stock,
+        station_commodities.collected_at
       FROM stations
       JOIN station_commodities
         ON station_commodities.station_id = stations.id
@@ -468,10 +488,13 @@ export function routePlannerReturnHaulQuery(options: {
       source_offers.is_planetary AS source_is_planetary,
       source_offers.station_sell_price,
       source_offers.stock,
+      source_offers.collected_at AS source_collected_at,
       destination_stations.id::text AS destination_station_id,
       destination_stations.name AS destination_station_name,
       ${buildPlanetaryPortExpression("destination_stations")} AS destination_is_planetary,
       destination_markets.station_buy_price,
+      destination_markets.demand,
+      destination_markets.collected_at AS destination_collected_at,
       destination_markets.station_buy_price - source_offers.station_sell_price AS profit
     FROM source_offers
     JOIN commodities
@@ -483,6 +506,7 @@ export function routePlannerReturnHaulQuery(options: {
     WHERE destination_stations.system_id = $2::bigint
       AND destination_stations.has_market = true
       AND destination_markets.station_buy_price > 0
+      AND ${buildDestinationDemandPredicate(options.requireDestinationDemand)}
       AND ${buildLandingPadPredicate("destination_stations", options.padSize)}
       AND ${buildFleetCarrierPredicate("destination_stations", options.includeFleetCarriers)}
       AND ${buildPlanetaryPortPredicate("destination_stations", options.includePlanetary)}
@@ -530,4 +554,10 @@ function buildFleetCarrierPredicate(
   return includeFleetCarriers
     ? "true"
     : `regexp_replace(lower(coalesce(${tableAlias}.type, '')), '[^a-z0-9]', '', 'g') <> 'fleetcarrier'`;
+}
+
+function buildDestinationDemandPredicate(requireDestinationDemand: boolean): string {
+  return requireDestinationDemand
+    ? "coalesce(destination_markets.demand, 0) > 0"
+    : "true";
 }

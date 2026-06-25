@@ -379,6 +379,7 @@
       maxRange: String(maxRange),
       originSystemId: String(plannerState.pickup.id),
       padSize: readPlannerPadSize(),
+      requireDestinationDemand: String(readPlannerRequireDestinationDemand()),
     });
 
     setPlannerStatus("Finding buyer");
@@ -461,7 +462,7 @@
     renderPlannerReturnTimeline(route);
     setPlannerBuyerLabel(route.destination.systemName);
     setPlannerStatus(
-      formatNumber(jumps) + " jumps | " + formatSignedCredits(route.profit ?? 0) + " | " + route.destination.stationName,
+      formatNumber(jumps) + " jumps | " + formatSignedCredits(route.profit ?? 0) + " | " + route.destination.stationName + formatRouteFreshness(route),
       { isLoss: Number(route.profit) < 0 },
     );
   }
@@ -605,6 +606,12 @@
 
   function readPlannerIncludeFleetCarriers() {
     const input = select("[data-planner-include-fleet-carriers]");
+
+    return input instanceof HTMLInputElement && input.checked;
+  }
+
+  function readPlannerRequireDestinationDemand() {
+    const input = select("[data-planner-require-destination-demand]");
 
     return input instanceof HTMLInputElement && input.checked;
   }
@@ -1181,6 +1188,25 @@
     return prefix + formatCredits(numericValue);
   }
 
+  function formatRouteFreshness(route) {
+    const timestamps = [
+      route?.source?.collectedAt,
+      route?.destination?.collectedAt,
+    ]
+      .map((value) => new Date(value))
+      .filter((date) => Number.isFinite(date.getTime()))
+      .sort((left, right) => left.getTime() - right.getTime());
+
+    if (timestamps.length === 0) {
+      return "";
+    }
+
+    return " | data " + new Intl.DateTimeFormat("en-US", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(timestamps[0]);
+  }
+
   window.addEventListener("DOMContentLoaded", () => {
     document.querySelectorAll("[data-dashboard-tab]").forEach((tab) => {
       tab.addEventListener("click", () => activateTab(tab.getAttribute("data-dashboard-tab") || "dashboard"));
@@ -1199,6 +1225,7 @@
     const plannerPadSizeSelect = select("[data-planner-pad-size]");
     const plannerIncludeFleetCarriersInput = select("[data-planner-include-fleet-carriers]");
     const plannerIncludePlanetaryInput = select("[data-planner-include-planetary]");
+    const plannerRequireDestinationDemandInput = select("[data-planner-require-destination-demand]");
     const plannerCopySourceButton = select("[data-planner-copy-source]");
     const plannerCopyDestinationButton = select("[data-planner-copy-destination]");
     const plannerViewSourceButton = select("[data-planner-view-source]");
@@ -1262,7 +1289,14 @@
       plannerUseBestButton.addEventListener("click", useBestPlannerCommodity);
     }
 
-    [plannerMaxRangeInput, plannerMaxJumpsInput, plannerPadSizeSelect, plannerIncludeFleetCarriersInput, plannerIncludePlanetaryInput].forEach((control) => {
+    [
+      plannerMaxRangeInput,
+      plannerMaxJumpsInput,
+      plannerPadSizeSelect,
+      plannerIncludeFleetCarriersInput,
+      plannerIncludePlanetaryInput,
+      plannerRequireDestinationDemandInput,
+    ].forEach((control) => {
       if (control) {
         control.addEventListener("change", () => {
           clearPlannerRoute("Route will be built when Build route is pressed.");

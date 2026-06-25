@@ -116,6 +116,8 @@ interface RoutePlannerTradeRouteRow {
   readonly commodity_category: string | null;
   readonly commodity_id: string;
   readonly commodity_name: string;
+  readonly destination_collected_at: Date | string;
+  readonly demand: string | number | null;
   readonly destination_station_id: string | number;
   readonly destination_station_name: string;
   readonly destination_is_planetary: boolean | null;
@@ -129,6 +131,7 @@ interface RoutePlannerTradeRouteRow {
   readonly source_station_id: string | number;
   readonly source_station_name: string;
   readonly source_is_planetary: boolean | null;
+  readonly source_collected_at: Date | string;
   readonly station_buy_price: string | number | null;
   readonly station_sell_price: string | number | null;
   readonly stock: string | number | null;
@@ -148,6 +151,8 @@ interface RoutePlannerReturnHaulRow {
   readonly commodity_category: string | null;
   readonly commodity_id: string;
   readonly commodity_name: string;
+  readonly destination_collected_at: Date | string;
+  readonly demand: string | number | null;
   readonly destination_station_id: string | number;
   readonly destination_station_name: string;
   readonly destination_is_planetary: boolean | null;
@@ -155,6 +160,7 @@ interface RoutePlannerReturnHaulRow {
   readonly source_station_id: string | number;
   readonly source_station_name: string;
   readonly source_is_planetary: boolean | null;
+  readonly source_collected_at: Date | string;
   readonly station_buy_price: string | number | null;
   readonly station_sell_price: string | number | null;
   readonly stock: string | number | null;
@@ -536,6 +542,7 @@ export async function startDashboardServer(
     const includeFleetCarriers = readQueryBoolean(context.req.query("includeFleetCarriers"));
     const includePlanetary = readQueryBoolean(context.req.query("includePlanetary"));
     const padSize = readLandingPadSize(context.req.query("padSize"));
+    const requireDestinationDemand = readQueryBoolean(context.req.query("requireDestinationDemand"));
 
     if (!originSystemId || !commodityId) {
       return context.json({ error: "Invalid route request" }, 400);
@@ -547,6 +554,7 @@ export async function startDashboardServer(
         includeFleetCarriers,
         includePlanetary,
         padSize,
+        requireDestinationDemand,
       }),
       [originSystemId, commodityId, maxDistance],
     );
@@ -566,6 +574,8 @@ export async function startDashboardServer(
     const jumps = Math.max(1, Math.ceil(distance / maxRange));
     const destination = {
       isPlanetary: row.destination_is_planetary === true,
+      collectedAt: formatJsonDate(row.destination_collected_at),
+      demand: readOptionalNumber(row.demand),
       stationId: String(row.destination_station_id),
       stationName: row.destination_station_name,
       systemId: String(row.destination_system_id),
@@ -587,6 +597,7 @@ export async function startDashboardServer(
       includePlanetary,
       originSystemId,
       padSize,
+      requireDestinationDemand,
     });
 
     return context.json({
@@ -609,6 +620,7 @@ export async function startDashboardServer(
           stationId: String(row.source_station_id),
           stationName: row.source_station_name,
           stationSellPrice: readOptionalNumber(row.station_sell_price),
+          collectedAt: formatJsonDate(row.source_collected_at),
           stock: readOptionalNumber(row.stock),
         },
         stationBuyPrice: readOptionalNumber(row.station_buy_price),
@@ -631,6 +643,7 @@ export async function startDashboardServer(
     const includeFleetCarriers = readQueryBoolean(context.req.query("includeFleetCarriers"));
     const includePlanetary = readQueryBoolean(context.req.query("includePlanetary"));
     const padSize = readLandingPadSize(context.req.query("padSize"));
+    const requireDestinationDemand = readQueryBoolean(context.req.query("requireDestinationDemand"));
 
     if (!originSystemId) {
       return context.json({ error: "Invalid route request" }, 400);
@@ -642,6 +655,7 @@ export async function startDashboardServer(
         includeFleetCarriers,
         includePlanetary,
         padSize,
+        requireDestinationDemand,
       }),
       [originSystemId, maxDistance],
     );
@@ -661,6 +675,8 @@ export async function startDashboardServer(
     const jumps = Math.max(1, Math.ceil(distance / maxRange));
     const destination = {
       isPlanetary: row.destination_is_planetary === true,
+      collectedAt: formatJsonDate(row.destination_collected_at),
+      demand: readOptionalNumber(row.demand),
       stationId: String(row.destination_station_id),
       stationName: row.destination_station_name,
       systemId: String(row.destination_system_id),
@@ -682,6 +698,7 @@ export async function startDashboardServer(
       includePlanetary,
       originSystemId,
       padSize,
+      requireDestinationDemand,
     });
 
     return context.json({
@@ -704,6 +721,7 @@ export async function startDashboardServer(
           stationId: String(row.source_station_id),
           stationName: row.source_station_name,
           stationSellPrice: readOptionalNumber(row.station_sell_price),
+          collectedAt: formatJsonDate(row.source_collected_at),
           stock: readOptionalNumber(row.stock),
         },
         stationBuyPrice: readOptionalNumber(row.station_buy_price),
@@ -779,7 +797,7 @@ export async function startDashboardServer(
         marketBrowserCommoditiesQuery({
           includeFleetCarriers,
           includePlanetary,
-          tradeDirection: "buy",
+          stationTradeRole: "station_buys",
         }),
         [systemId],
       ),
@@ -787,7 +805,7 @@ export async function startDashboardServer(
         marketBrowserCommoditiesQuery({
           includeFleetCarriers,
           includePlanetary,
-          tradeDirection: "sell",
+          stationTradeRole: "station_sells",
         }),
         [systemId],
       ),
@@ -1118,24 +1136,18 @@ async function readRoutePlannerWaypoints(
   readonly y: number;
   readonly z: number;
 }>> {
-  const jumpIndexes = Array.from(
-    { length: Math.max(0, options.jumps - 1) },
-    (_, index) => index + 1,
-  );
-
-  if (jumpIndexes.length === 0) {
+  if (options.jumps <= 1) {
     return [];
   }
 
   const result = await database.query<RoutePlannerWaypointRow>(
-    routePlannerWaypointsQuery(jumpIndexes.length),
+    routePlannerWaypointsQuery(),
     [
       options.originSystemId,
       options.destination.x,
       options.destination.y,
       options.destination.z,
       options.jumps,
-      ...jumpIndexes,
       options.destination.systemId,
     ],
   );
@@ -1159,6 +1171,7 @@ async function readRoutePlannerReturnHaul(
     readonly includePlanetary: boolean;
     readonly originSystemId: string;
     readonly padSize: "M" | "L";
+    readonly requireDestinationDemand: boolean;
   },
 ): Promise<{
   readonly commodity: {
@@ -1171,6 +1184,8 @@ async function readRoutePlannerReturnHaul(
     readonly stationId: string;
     readonly stationName: string;
     readonly stationBuyPrice: number | undefined;
+    readonly collectedAt: string;
+    readonly demand: number | undefined;
   };
   readonly profit: number | undefined;
   readonly source: {
@@ -1178,6 +1193,7 @@ async function readRoutePlannerReturnHaul(
     readonly stationId: string;
     readonly stationName: string;
     readonly stationSellPrice: number | undefined;
+    readonly collectedAt: string;
     readonly stock: number | undefined;
   };
 } | null> {
@@ -1186,6 +1202,7 @@ async function readRoutePlannerReturnHaul(
       includeFleetCarriers: options.includeFleetCarriers,
       includePlanetary: options.includePlanetary,
       padSize: options.padSize,
+      requireDestinationDemand: options.requireDestinationDemand,
     }),
     [options.destinationSystemId, options.originSystemId],
   );
@@ -1203,6 +1220,8 @@ async function readRoutePlannerReturnHaul(
     },
     destination: {
       isPlanetary: row.destination_is_planetary === true,
+      collectedAt: formatJsonDate(row.destination_collected_at),
+      demand: readOptionalNumber(row.demand),
       stationBuyPrice: readOptionalNumber(row.station_buy_price),
       stationId: String(row.destination_station_id),
       stationName: row.destination_station_name,
@@ -1213,6 +1232,7 @@ async function readRoutePlannerReturnHaul(
       stationId: String(row.source_station_id),
       stationName: row.source_station_name,
       stationSellPrice: readOptionalNumber(row.station_sell_price),
+      collectedAt: formatJsonDate(row.source_collected_at),
       stock: readOptionalNumber(row.stock),
     },
   };

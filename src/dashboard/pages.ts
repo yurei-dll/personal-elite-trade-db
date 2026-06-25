@@ -251,6 +251,10 @@ function renderRoutePlannerSection(): string {
                     <input type="checkbox" data-planner-include-planetary>
                     <span>Include planetary settlements</span>
                   </label>
+                  <label class="toggle-field">
+                    <input type="checkbox" data-planner-require-destination-demand>
+                    <span>Require buyer demand</span>
+                  </label>
                 </div>
                 <div class="planner-command-row">
                   <button type="button" data-planner-build>Build route</button>
