@@ -2,7 +2,13 @@
   const state = {
     animationFrame: 0,
     camera: undefined,
+    cameraOrbit: {
+      pitch: 0,
+      radius: 220,
+      yaw: 0,
+    },
     enabled: false,
+    enabling: false,
     group: undefined,
     hoveredSystem: undefined,
     isDragging: false,
@@ -822,7 +828,7 @@
       return;
     }
 
-    setStatus(state.enabled ? "Route view closed." : "3D map disabled. No systems loaded.");
+    setStatus(state.enabled ? "Route view closed." : "3D map is not loaded.");
   }
 
   function updateRouteReferenceControls() {
@@ -966,13 +972,33 @@
       return;
     }
 
-    if (state.enabled) {
+    if (state.enabled || state.enabling) {
       return;
     }
 
+    state.enabling = true;
     setStatus("Loading 3D renderer...");
-    state.three = await getThree();
+
+    if (enableButton instanceof HTMLButtonElement) {
+      enableButton.disabled = true;
+      enableButton.textContent = "Loading 3D map...";
+    }
+
+    try {
+      state.three = await getThree();
+    } catch (error) {
+      state.enabling = false;
+
+      if (enableButton instanceof HTMLButtonElement) {
+        enableButton.disabled = false;
+        enableButton.textContent = "Enable 3D map";
+      }
+
+      throw error;
+    }
+
     state.enabled = true;
+    state.enabling = false;
     canvas.hidden = false;
 
     if (enableButton instanceof HTMLButtonElement) {
@@ -1006,16 +1032,15 @@
     raycaster.params.Points.threshold = 4;
     scene.background = new three.Color(0x090c12);
     scene.add(group);
-    group.add(new three.AxesHelper(70));
-    group.add(new three.GridHelper(180, 12, 0x263142, 0x182033));
-    camera.position.set(0, 80, 220);
-    camera.lookAt(0, 0, 0);
+    group.add(new three.AxesHelper(100));
+    group.add(new three.GridHelper(260, 16, 0x2f4058, 0x202b40));
 
     state.camera = camera;
     state.group = group;
     state.raycaster = raycaster;
     state.renderer = renderer;
     state.scene = scene;
+    updateOrbitCamera();
 
     canvas.addEventListener("pointerdown", (event) => {
       state.isDragging = true;
@@ -1035,8 +1060,12 @@
       const deltaX = event.clientX - state.lastPointer.x;
       const deltaY = event.clientY - state.lastPointer.y;
       state.lastPointer = { x: event.clientX, y: event.clientY };
-      state.group.rotation.y += deltaX * 0.007;
-      state.group.rotation.x += deltaY * 0.007;
+      state.cameraOrbit.yaw -= deltaX * 0.007;
+      state.cameraOrbit.pitch = Math.max(
+        -Math.PI * 0.45,
+        Math.min(Math.PI * 0.45, state.cameraOrbit.pitch + deltaY * 0.007),
+      );
+      updateOrbitCamera();
       updateHoverAt(event, canvas);
     });
     canvas.addEventListener("pointerup", (event) => {
@@ -1050,13 +1079,32 @@
         return;
       }
 
-      state.camera.position.z = Math.max(35, Math.min(1200, state.camera.position.z + event.deltaY * 0.35));
+      state.cameraOrbit.radius = Math.max(35, Math.min(1200, state.cameraOrbit.radius + event.deltaY * 0.35));
+      updateOrbitCamera();
     }, { passive: false });
     canvas.addEventListener("pointerleave", () => setHoverSystem(undefined));
     canvas.addEventListener("click", (event) => selectSystemAt(event, canvas));
     window.addEventListener("resize", resizeRoutePlanner);
     resizeRoutePlanner();
     animateRoutePlanner();
+  }
+
+  function updateOrbitCamera() {
+    if (!state.camera) {
+      return;
+    }
+
+    const radius = state.cameraOrbit.radius;
+    const pitch = state.cameraOrbit.pitch;
+    const yaw = state.cameraOrbit.yaw;
+    const horizontalRadius = Math.cos(pitch) * radius;
+
+    state.camera.position.set(
+      Math.sin(yaw) * horizontalRadius,
+      Math.sin(pitch) * radius,
+      Math.cos(yaw) * horizontalRadius,
+    );
+    state.camera.lookAt(0, 0, 0);
   }
 
   async function loadSystems() {
@@ -1137,10 +1185,32 @@
     const geometry = new three.BufferGeometry();
     geometry.setAttribute("position", new three.BufferAttribute(positions, 3));
     geometry.setAttribute("color", new three.BufferAttribute(colors, 3));
-    const material = new three.PointsMaterial({
-      size: 4,
-      sizeAttenuation: true,
+    const material = new three.ShaderMaterial({
       vertexColors: true,
+      uniforms: {
+        baseSize: { value: 12 },
+      },
+      vertexShader: `
+        uniform float baseSize;
+        varying vec3 vColor;
+
+        void main() {
+          vColor = color;
+          vec4 modelViewPosition = modelViewMatrix * vec4(position, 1.0);
+          gl_Position = projectionMatrix * modelViewPosition;
+          gl_PointSize = clamp(baseSize * (260.0 / -modelViewPosition.z), 3.0, 8.0);
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vColor;
+
+        void main() {
+          vec2 point = gl_PointCoord - vec2(0.5);
+          float alpha = 1.0 - smoothstep(0.16, 0.5, length(point));
+          gl_FragColor = vec4(vColor, alpha);
+        }
+      `,
+      transparent: true,
     });
 
     state.points = new three.Points(geometry, material);
@@ -1349,6 +1419,8 @@
         enableRoutePlanner().catch((error) => setStatus(error instanceof Error ? error.message : String(error)));
       });
     }
+
+    enableRoutePlanner().catch((error) => setStatus(error instanceof Error ? error.message : String(error)));
 
     if (loadButton instanceof HTMLButtonElement) {
       loadButton.addEventListener("click", () => {

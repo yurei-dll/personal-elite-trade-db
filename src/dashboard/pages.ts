@@ -302,11 +302,11 @@ function renderGalaxyMapSection(): string {
             <p class="eyebrow">Galaxy Map</p>
             <h2 id="galaxy-map-tab-title" data-route-map-title>Nearby Systems Map</h2>
           </div>
-          <span class="pill">3D disabled by default</span>
+          <span class="pill">3D enabled by default</span>
         </div>
         <div class="route-layout">
           <aside class="route-controls">
-            <p class="muted">Enable the WebGL map when you want a local 3D view. It loads only after you ask for it.</p>
+            <p class="muted">The WebGL map loads automatically for the local 3D view.</p>
             <button type="button" data-route-enable>Enable 3D map</button>
             <div class="route-control-grid">
               <label>
@@ -330,7 +330,7 @@ function renderGalaxyMapSection(): string {
             <button type="button" class="secondary" data-route-set-reference>Set reference</button>
             <p class="route-reference" data-route-reference>Reference: galactic origin</p>
             <button type="button" class="secondary" data-route-load disabled>Load nearest systems</button>
-            <p class="muted" data-route-status>3D map disabled. No systems loaded.</p>
+            <p class="muted" data-route-status>Loading 3D map...</p>
           </aside>
           <div class="route-map-frame">
             <div class="route-view-banner" data-route-view-banner hidden>
@@ -339,7 +339,7 @@ function renderGalaxyMapSection(): string {
             </div>
             <canvas data-route-canvas hidden aria-label="3D view of nearby systems"></canvas>
             <div class="route-hover-label" data-route-hover hidden></div>
-            <div class="route-map-placeholder">3D map is disabled</div>
+            <div class="route-map-placeholder">Loading 3D map...</div>
           </div>
         </div>
       </div>
