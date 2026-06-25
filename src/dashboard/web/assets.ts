@@ -274,7 +274,6 @@ export const ROUTE_PLANNER_SCRIPT = `
   let threePromise;
   const plannerState = {
     commodities: [],
-    preview: undefined,
     pickup: undefined,
     pickupResults: [],
     pickupToken: 0,
@@ -398,7 +397,7 @@ export const ROUTE_PLANNER_SCRIPT = `
   function clearPlannerRoute() {
     plannerState.route = undefined;
     updatePlannerCopyButtons(undefined);
-    resetPlannerCycle();
+    resetPlannerReturnTimeline();
   }
 
   async function searchPlannerSystems(query) {
@@ -593,173 +592,97 @@ export const ROUTE_PLANNER_SCRIPT = `
     }
 
     const jumps = Math.max(1, Number(route.jumps) || 1);
-    const waypoints = Array.isArray(route.waypoints) ? route.waypoints : [];
-    const hops = waypoints.map((waypoint) => ({
-      meta: formatNumber(waypoint.distance) + " ly from route",
-      name: waypoint.name,
-      x: waypoint.x,
-      y: waypoint.y,
-      z: waypoint.z,
+    const routePoints = readPlannerRoutePoints(route);
+    const hops = routePoints.slice(1).map((point, index) => ({
+      meta: formatNumber(calculateRouteDistance(routePoints[index], point)) + " ly",
+      name: point.name || point.systemName || "Unknown system",
+      x: point.x,
+      y: point.y,
+      z: point.z,
     }));
+    const bracket = createElement("div", { className: "timeline-bracket" }, [
+      createElement("span", {}, formatNumber(route.distance) + " ly total"),
+    ]);
 
-    if (hops.length === 0) {
-      track.replaceChildren(renderPlannerHop({
-        meta: formatNumber(route.distance) + " ly",
-        name: route.destination.systemName,
-        x: route.destination.x,
-        y: route.destination.y,
-        z: route.destination.z,
-      }));
-    } else {
-      track.replaceChildren(...hops.map((hop) => renderPlannerHop(hop)));
-    }
+    track.replaceChildren(bracket, ...hops.map((hop) => renderPlannerHop(hop)));
 
     plannerState.route = route;
     updatePlannerCopyButtons(route);
-    renderPlannerCycle(route);
-    renderPlannerPreview(route).catch((error) => setPlannerStatus(error instanceof Error ? error.message : String(error)));
+    renderPlannerReturnTimeline(route);
     setPlannerBuyerLabel(route.destination.systemName);
     setPlannerStatus(formatNumber(jumps) + " jumps | +" + formatCredits(route.profit ?? 0) + " | " + route.destination.stationName);
   }
 
-  function resetPlannerCycle() {
-    const outbound = select("[data-planner-outbound-haul]");
-    const returnHaul = select("[data-planner-return-haul]");
-
-    if (outbound) {
-      outbound.replaceChildren(
-        createElement("span", {}, "Outbound"),
-        createElement("strong", {}, "No route selected"),
-        createElement("small", {}, "Choose a commodity to sell."),
-      );
-    }
-
-    if (returnHaul) {
-      returnHaul.replaceChildren(
-        createElement("span", {}, "Return"),
-        createElement("strong", {}, "No return haul"),
-        createElement("small", {}, "Build a route to check the way back."),
-      );
-    }
-
-    clearPlannerPreview();
-  }
-
-  function renderPlannerCycle(route) {
-    const outbound = select("[data-planner-outbound-haul]");
-    const returnHaul = select("[data-planner-return-haul]");
-
-    if (outbound) {
-      outbound.replaceChildren(
-        createElement("span", {}, "Outbound"),
-        createElement("strong", {}, route.commodity.name || "Unknown commodity"),
-        createElement("small", {}, route.source.stationName + " -> " + route.destination.stationName + " | +" + formatCredits(route.profit ?? 0)),
-      );
-    }
-
-    if (!returnHaul) {
-      return;
-    }
-
-    if (!route.returnHaul) {
-      returnHaul.replaceChildren(
-        createElement("span", {}, "Return"),
-        createElement("strong", {}, "No return haul found"),
-        createElement("small", {}, route.destination.systemName + " -> " + plannerState.pickup.name),
-      );
-      return;
-    }
-
-    returnHaul.replaceChildren(
-      createElement("span", {}, "Return"),
-      createElement("strong", {}, route.returnHaul.commodity.name || "Unknown commodity"),
-      createElement("small", {}, route.returnHaul.source.stationName + " -> " + route.returnHaul.destination.stationName + " | +" + formatCredits(route.returnHaul.profit ?? 0)),
-    );
-  }
-
-  async function renderPlannerPreview(route) {
-    const canvas = select("[data-planner-preview-canvas]");
-
-    if (!(canvas instanceof HTMLCanvasElement) || !plannerState.pickup) {
-      return;
-    }
-
-    const three = await getThree();
-    const rect = canvas.getBoundingClientRect();
-    const width = Math.max(320, Math.floor(rect.width));
-    const height = Math.max(180, Math.floor(rect.height || 192));
-
-    clearPlannerPreview();
-
-    const renderer = new three.WebGLRenderer({
-      antialias: true,
-      canvas,
-    });
-    renderer.setPixelRatio(window.devicePixelRatio || 1);
-    renderer.setSize(width, height, false);
-
-    const scene = new three.Scene();
-    scene.background = new three.Color(0x090c12);
-
-    const camera = new three.PerspectiveCamera(52, width / height, 0.1, 5000);
-    const routePoints = [
+  function readPlannerRoutePoints(route) {
+    return [
       plannerState.pickup,
       ...(Array.isArray(route.waypoints) ? route.waypoints : []),
-      route.destination,
+      {
+        ...route.destination,
+        name: route.destination.systemName,
+      },
     ];
-    const center = routePoints.reduce((sum, point) => {
-      sum.x += Number(point.x) || 0;
-      sum.y += Number(point.y) || 0;
-      sum.z += Number(point.z) || 0;
-      return sum;
-    }, { x: 0, y: 0, z: 0 });
-    center.x /= routePoints.length;
-    center.y /= routePoints.length;
-    center.z /= routePoints.length;
-
-    const vectors = routePoints.map((point) => new three.Vector3(
-      (Number(point.x) || 0) - center.x,
-      (Number(point.y) || 0) - center.y,
-      (Number(point.z) || 0) - center.z,
-    ));
-    const maxRadius = Math.max(1, ...vectors.map((vector) => vector.length()));
-    const scale = Math.min(4, 80 / maxRadius);
-    vectors.forEach((vector) => vector.multiplyScalar(scale));
-
-    const geometry = new three.BufferGeometry().setFromPoints(vectors);
-    const material = new three.LineBasicMaterial({ color: 0x48d7ff });
-    const line = new three.Line(geometry, material);
-    scene.add(line);
-
-    vectors.forEach((vector, index) => {
-      const marker = new three.Mesh(
-        new three.SphereGeometry(index === 0 || index === vectors.length - 1 ? 2.8 : 1.8, 16, 12),
-        new three.MeshBasicMaterial({ color: index === 0 ? 0x7bf2c4 : 0x48d7ff }),
-      );
-      marker.position.copy(vector);
-      scene.add(marker);
-    });
-
-    camera.position.set(0, Math.max(35, maxRadius * scale * 0.75), Math.max(80, maxRadius * scale * 2.2));
-    camera.lookAt(0, 0, 0);
-    renderer.render(scene, camera);
-
-    plannerState.preview = { geometry, material, renderer, scene };
   }
 
-  function clearPlannerPreview(disposeRenderer = true) {
-    if (!plannerState.preview) {
+  function calculateRouteDistance(from, to) {
+    const x = (Number(to.x) || 0) - (Number(from.x) || 0);
+    const y = (Number(to.y) || 0) - (Number(from.y) || 0);
+    const z = (Number(to.z) || 0) - (Number(from.z) || 0);
+
+    return Math.sqrt((x * x) + (y * y) + (z * z));
+  }
+
+  function resetPlannerReturnTimeline() {
+    const startLabel = select("[data-planner-return-start-label]");
+    const endLabel = select("[data-planner-return-end-label]");
+    const track = select("[data-planner-return-track]");
+
+    if (startLabel) {
+      startLabel.textContent = "Buyer system";
+    }
+
+    if (endLabel) {
+      endLabel.textContent = "Original station";
+    }
+
+    if (track) {
+      track.replaceChildren(renderPlannerMessage("Return haul appears after a route is built."));
+    }
+  }
+
+  function renderPlannerReturnTimeline(route) {
+    const startLabel = select("[data-planner-return-start-label]");
+    const endLabel = select("[data-planner-return-end-label]");
+    const track = select("[data-planner-return-track]");
+
+    if (!track || !plannerState.pickup) {
       return;
     }
 
-    plannerState.preview.geometry.dispose();
-    plannerState.preview.material.dispose();
+    const returnSummary = route.returnHaul
+      ? route.returnHaul.commodity.name + " | +" + formatCredits(route.returnHaul.profit ?? 0)
+      : "No return haul found";
+    const routePoints = readPlannerRoutePoints(route).slice().reverse();
+    const returnHops = routePoints.slice(1).map((point, index) => ({
+      meta: formatNumber(calculateRouteDistance(routePoints[index], point)) + " ly",
+      name: point.name || point.systemName || "Unknown system",
+      x: point.x,
+      y: point.y,
+      z: point.z,
+    }));
+    const bracket = createElement("div", { className: "timeline-bracket" }, [
+      createElement("span", {}, formatNumber(route.distance) + " ly return"),
+    ]);
 
-    if (disposeRenderer) {
-      plannerState.preview.renderer.dispose();
+    if (startLabel) {
+      startLabel.textContent = returnSummary;
     }
 
-    plannerState.preview = undefined;
+    if (endLabel) {
+      endLabel.textContent = route.source.stationName + " | " + plannerState.pickup.name;
+    }
+
+    track.replaceChildren(bracket, ...returnHops.map((hop) => renderPlannerHop(hop)));
   }
 
   function createElement(tagName, options, children) {

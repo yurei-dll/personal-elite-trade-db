@@ -230,25 +230,27 @@ function renderRoutePlannerSection(): string {
             </div>
             <button type="button" data-planner-build>Build route</button>
           </aside>
-          <section class="planner-cycle">
-            <div class="cycle-flow">
-              <article class="cycle-card" data-planner-outbound-haul>
-                <span>Outbound</span>
-                <strong>No route selected</strong>
-                <small>Choose a commodity to sell.</small>
-              </article>
-              <div class="cycle-arrow" aria-hidden="true">-></div>
-              <article class="cycle-card" data-planner-return-haul>
-                <span>Return</span>
-                <strong>No return haul</strong>
-                <small>Build a route to check the way back.</small>
-              </article>
-              <div class="cycle-arrow" aria-hidden="true">-></div>
+          <div class="cycle-turn cycle-turn-right" aria-hidden="true">
+            <span>↓</span>
+          </div>
+          <section class="planner-timeline planner-return-timeline">
+            <div class="timeline-node endpoint">
+              <span class="timeline-dot"></span>
+              <strong>Pickup</strong>
+              <small data-planner-return-end-label>Pickup system</small>
             </div>
-            <div class="planner-preview-frame">
-              <canvas data-planner-preview-canvas aria-label="3D route preview"></canvas>
+            <div class="timeline-track" data-planner-return-track>
+              <p class="muted">Return haul appears after a route is built.</p>
+            </div>
+            <div class="timeline-node endpoint">
+              <span class="timeline-dot"></span>
+              <strong>Return commodity</strong>
+              <small data-planner-return-start-label>Buyer system</small>
             </div>
           </section>
+          <div class="cycle-turn cycle-turn-left" aria-hidden="true">
+            <span>↑</span>
+          </div>
         </div>
       </div>
     </section>
@@ -719,6 +721,7 @@ function renderDocument(options: {
         display: grid;
         gap: 1rem;
         grid-template-columns: 1fr;
+        position: relative;
       }
       .planner-controls,
       .planner-endpoints,
@@ -737,52 +740,6 @@ function renderDocument(options: {
       .planner-settings {
         grid-template-columns: repeat(3, minmax(0, 1fr));
       }
-      .planner-cycle {
-        display: grid;
-        gap: 1rem;
-        grid-template-columns: minmax(18rem, 0.9fr) minmax(0, 1.1fr);
-      }
-      .cycle-flow {
-        align-items: center;
-        display: grid;
-        gap: 0.75rem;
-        grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
-      }
-      .cycle-card {
-        background: #090c12;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        min-width: 0;
-        padding: 0.75rem;
-      }
-      .cycle-card span,
-      .cycle-card small {
-        color: var(--muted);
-        display: block;
-        font-size: 0.76rem;
-      }
-      .cycle-card strong {
-        display: block;
-        font-size: 0.95rem;
-        margin: 0.25rem 0;
-        overflow-wrap: anywhere;
-      }
-      .cycle-arrow {
-        color: var(--accent);
-        font-weight: 900;
-      }
-      .planner-preview-frame {
-        background: #090c12;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        min-height: 12rem;
-        overflow: hidden;
-      }
-      canvas[data-planner-preview-canvas] {
-        display: block;
-        height: 12rem;
-        width: 100%;
-      }
       .planner-timeline {
         align-items: center;
         background: #090c12;
@@ -793,6 +750,62 @@ function renderDocument(options: {
         grid-template-columns: minmax(7rem, 10rem) minmax(0, 1fr) minmax(7rem, 10rem);
         min-height: 12rem;
         padding: 0.9rem;
+      }
+      .planner-return-timeline {
+        border-color: rgba(123, 242, 196, 0.45);
+      }
+      .planner-return-timeline .timeline-track {
+        flex-direction: row-reverse;
+      }
+      .planner-return-timeline .timeline-track::before {
+        background: rgba(123, 242, 196, 0.55);
+      }
+      .planner-return-timeline .timeline-hop::after,
+      .timeline-hop::after {
+        color: var(--accent);
+        content: "→";
+        font-size: 0.9rem;
+        font-weight: 900;
+        position: absolute;
+        right: -0.25rem;
+        top: calc(50% - 0.7rem);
+      }
+      .planner-return-timeline .timeline-hop::after {
+        color: var(--accent-strong);
+        content: "←";
+      }
+      .timeline-hop:last-child::after {
+        content: "";
+      }
+      .planner-return-timeline .timeline-hop:last-child::after {
+        content: "←";
+      }
+      .planner-return-timeline .timeline-hop:first-child::after {
+        content: "";
+      }
+      .planner-return-timeline .timeline-dot {
+        background: var(--accent-strong);
+        box-shadow: 0 0 0 1px var(--accent-strong), 0 0 1.25rem rgba(123, 242, 196, 0.28);
+      }
+      .cycle-turn {
+        align-items: center;
+        color: var(--accent);
+        display: flex;
+        font-size: 1.5rem;
+        font-weight: 900;
+        justify-content: center;
+        margin: -0.4rem 0;
+        min-height: 1.5rem;
+        pointer-events: none;
+      }
+      .cycle-turn-right {
+        justify-content: flex-end;
+        padding-right: min(5rem, 12%);
+      }
+      .cycle-turn-left {
+        color: var(--accent-strong);
+        justify-content: flex-start;
+        padding-left: min(5rem, 12%);
       }
       .timeline-track {
         align-items: center;
@@ -809,6 +822,28 @@ function renderDocument(options: {
         position: absolute;
         right: 0;
         top: 50%;
+      }
+      .timeline-bracket {
+        border-left: 1px solid var(--accent);
+        border-right: 1px solid var(--accent);
+        border-top: 1px solid var(--accent);
+        color: var(--accent);
+        font-size: 0.72rem;
+        font-weight: 800;
+        left: 0.5rem;
+        line-height: 1;
+        padding-top: 0.35rem;
+        position: absolute;
+        right: 0.5rem;
+        text-align: center;
+        top: 0.35rem;
+        z-index: 2;
+      }
+      .timeline-bracket span {
+        background: #090c12;
+        padding: 0 0.4rem;
+        position: relative;
+        top: -0.72rem;
       }
       .timeline-node {
         align-items: center;
@@ -1169,8 +1204,6 @@ function renderDocument(options: {
         }
         .planner-layout,
         .planner-timeline,
-        .planner-cycle,
-        .cycle-flow,
         .planner-controls,
         .planner-endpoints {
           grid-template-columns: 1fr;
@@ -1183,6 +1216,9 @@ function renderDocument(options: {
           flex-direction: column;
           gap: 0.9rem;
         }
+        .planner-return-timeline .timeline-track {
+          flex-direction: column-reverse;
+        }
         .timeline-track::before {
           bottom: 0;
           height: auto;
@@ -1191,6 +1227,23 @@ function renderDocument(options: {
           top: 0;
           width: 2px;
         }
+        .timeline-bracket {
+          border-bottom: 1px solid var(--accent);
+          border-left: 1px solid var(--accent);
+          border-right: 0;
+          border-top: 1px solid var(--accent);
+          bottom: 0.25rem;
+          left: 0.25rem;
+          padding-left: 0.35rem;
+          padding-top: 0;
+          right: auto;
+          text-align: left;
+          top: 0.25rem;
+          writing-mode: vertical-rl;
+        }
+        .timeline-bracket span {
+          top: 0;
+        }
         .timeline-hop {
           min-height: 4rem;
           width: 100%;
@@ -1198,6 +1251,15 @@ function renderDocument(options: {
         .timeline-hop .timeline-dot {
           left: 50%;
           top: 50%;
+        }
+        .timeline-hop::after,
+        .planner-return-timeline .timeline-hop::after,
+        .planner-return-timeline .timeline-hop:last-child::after {
+          content: "";
+        }
+        .cycle-turn {
+          margin: -0.25rem 0;
+          padding: 0;
         }
       .market-search-row,
         .market-layout,
