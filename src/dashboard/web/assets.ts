@@ -382,6 +382,8 @@ export const ROUTE_PLANNER_SCRIPT = `
   function updatePlannerCopyButtons(route) {
     const sourceButton = select("[data-planner-copy-source]");
     const destinationButton = select("[data-planner-copy-destination]");
+    const viewSourceButton = select("[data-planner-view-source]");
+    const viewDestinationButton = select("[data-planner-view-destination]");
 
     if (sourceButton instanceof HTMLButtonElement) {
       sourceButton.disabled = !route;
@@ -391,6 +393,14 @@ export const ROUTE_PLANNER_SCRIPT = `
     if (destinationButton instanceof HTMLButtonElement) {
       destinationButton.disabled = !route;
       destinationButton.textContent = "Copy market";
+    }
+
+    if (viewSourceButton instanceof HTMLButtonElement) {
+      viewSourceButton.disabled = !route;
+    }
+
+    if (viewDestinationButton instanceof HTMLButtonElement) {
+      viewDestinationButton.disabled = !route;
     }
   }
 
@@ -815,6 +825,29 @@ export const ROUTE_PLANNER_SCRIPT = `
         button.textContent = "Copy market";
       }, 1200);
     }
+  }
+
+  function viewPlannerMarket(kind) {
+    const route = plannerState.route;
+
+    if (!route) {
+      return;
+    }
+
+    const station = kind === "source"
+      ? {
+          id: route.source.stationId,
+          name: route.source.stationName,
+        }
+      : {
+          id: route.destination.stationId,
+          name: route.destination.stationName,
+        };
+
+    activateTab("station-browser");
+    window.dispatchEvent(new CustomEvent("petdb:station-selected", {
+      detail: station,
+    }));
   }
 
   async function writeClipboardText(value) {
@@ -1275,6 +1308,8 @@ export const ROUTE_PLANNER_SCRIPT = `
     const plannerPadSizeSelect = select("[data-planner-pad-size]");
     const plannerCopySourceButton = select("[data-planner-copy-source]");
     const plannerCopyDestinationButton = select("[data-planner-copy-destination]");
+    const plannerViewSourceButton = select("[data-planner-view-source]");
+    const plannerViewDestinationButton = select("[data-planner-view-destination]");
     let referenceSearchTimer = 0;
     let plannerPickupTimer = 0;
 
@@ -1355,6 +1390,14 @@ export const ROUTE_PLANNER_SCRIPT = `
       plannerCopyDestinationButton.addEventListener("click", () => {
         copyPlannerMarket("destination").catch((error) => setPlannerStatus(error instanceof Error ? error.message : String(error)));
       });
+    }
+
+    if (plannerViewSourceButton instanceof HTMLButtonElement) {
+      plannerViewSourceButton.addEventListener("click", () => viewPlannerMarket("source"));
+    }
+
+    if (plannerViewDestinationButton instanceof HTMLButtonElement) {
+      plannerViewDestinationButton.addEventListener("click", () => viewPlannerMarket("destination"));
     }
 
     window.addEventListener("petdb:use-system-in-planner", (event) => {

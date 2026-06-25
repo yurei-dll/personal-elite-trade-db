@@ -185,7 +185,10 @@ function renderRoutePlannerSection(): string {
               <span class="timeline-dot"></span>
               <strong>Pickup</strong>
               <small data-planner-pickup-label>Select system</small>
-              <button type="button" class="timeline-copy" data-planner-copy-source disabled>Copy market</button>
+              <div class="timeline-actions">
+                <button type="button" class="timeline-copy" data-planner-copy-source disabled>Copy market</button>
+                <button type="button" class="timeline-copy" data-planner-view-source disabled>View market</button>
+              </div>
             </div>
             <div class="timeline-track" data-planner-track>
               <p class="muted">Select a pickup system and commodity, then build a route.</p>
@@ -194,46 +197,54 @@ function renderRoutePlannerSection(): string {
               <span class="timeline-dot"></span>
               <strong>Buyer</strong>
               <small data-planner-buyer-label>Best match</small>
-              <button type="button" class="timeline-copy" data-planner-copy-destination disabled>Copy market</button>
+              <div class="timeline-actions">
+                <button type="button" class="timeline-copy" data-planner-copy-destination disabled>Copy market</button>
+                <button type="button" class="timeline-copy" data-planner-view-destination disabled>View market</button>
+              </div>
             </div>
           </div>
-          <aside class="planner-controls">
-            <div class="planner-endpoints">
-              <label>
-                <span>Pickup location</span>
-                <input type="search" list="planner-pickup-results" placeholder="Search systems..." autocomplete="off" data-planner-pickup-search>
-                <datalist id="planner-pickup-results" data-planner-pickup-results></datalist>
-              </label>
-              <label>
-                <span>Commodity</span>
-                <select data-planner-commodity disabled>
-                  <option value="">Choose pickup first</option>
-                </select>
-              </label>
-              <button type="button" class="secondary planner-use-best" data-planner-use-best disabled>Use best</button>
+          <div class="planner-loop-center">
+            <div class="cycle-turn cycle-turn-left" aria-hidden="true">↑</div>
+            <div class="planner-center-panel">
+              <aside class="planner-controls">
+                <div class="planner-endpoints">
+                  <label>
+                    <span>Pickup location</span>
+                    <input type="search" list="planner-pickup-results" placeholder="Search systems..." autocomplete="off" data-planner-pickup-search>
+                    <datalist id="planner-pickup-results" data-planner-pickup-results></datalist>
+                  </label>
+                  <label>
+                    <span>Commodity</span>
+                    <select data-planner-commodity disabled>
+                      <option value="">Choose pickup first</option>
+                    </select>
+                  </label>
+                  <button type="button" class="secondary planner-use-best" data-planner-use-best disabled>Use best</button>
+                </div>
+                <div class="planner-settings">
+                  <label>
+                    <span>Max jump range</span>
+                    <input type="number" min="1" max="500" step="0.1" value="30" data-planner-max-range>
+                  </label>
+                  <label>
+                    <span>Max jumps</span>
+                    <input type="number" min="1" max="100" step="1" value="8" data-planner-max-jumps>
+                  </label>
+                  <label>
+                    <span>Min landing pad size</span>
+                    <select data-planner-pad-size>
+                      <option value="M">Medium</option>
+                      <option value="L" selected>Large</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="planner-command-row">
+                  <button type="button" data-planner-build>Build route</button>
+                  <button type="button" class="secondary" data-planner-view-route disabled>View route</button>
+                </div>
+              </aside>
             </div>
-            <div class="planner-settings">
-              <label>
-                <span>Max jump range</span>
-                <input type="number" min="1" max="500" step="0.1" value="30" data-planner-max-range>
-              </label>
-              <label>
-                <span>Max jumps</span>
-                <input type="number" min="1" max="100" step="1" value="8" data-planner-max-jumps>
-              </label>
-              <label>
-                <span>Min landing pad size</span>
-                <select data-planner-pad-size>
-                  <option value="M">Medium</option>
-                  <option value="L" selected>Large</option>
-                </select>
-              </label>
-            </div>
-            <button type="button" data-planner-build>Build route</button>
-          </aside>
-          <div class="cycle-turn-row" aria-hidden="true">
-            <span class="cycle-turn cycle-turn-left">↑</span>
-            <span class="cycle-turn cycle-turn-right">↓</span>
+            <div class="cycle-turn cycle-turn-right" aria-hidden="true">↓</div>
           </div>
           <section class="planner-timeline planner-return-timeline">
             <div class="timeline-node endpoint">
@@ -729,9 +740,17 @@ function renderDocument(options: {
         gap: 1rem;
         align-content: start;
       }
+      .planner-loop-center {
+        align-items: center;
+        display: grid;
+        gap: 1rem;
+        grid-template-columns: minmax(3rem, 0.18fr) minmax(0, 1fr) minmax(3rem, 0.18fr);
+      }
+      .planner-center-panel {
+        min-width: 0;
+      }
       .planner-controls {
-        grid-template-columns: minmax(18rem, 1.2fr) minmax(18rem, 1fr) auto;
-        align-items: end;
+        grid-template-columns: 1fr;
       }
       .planner-endpoints {
         align-items: end;
@@ -744,6 +763,11 @@ function renderDocument(options: {
       }
       .planner-settings {
         grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+      .planner-command-row {
+        display: grid;
+        gap: 0.65rem;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
       }
       .planner-timeline {
         align-items: center;
@@ -799,22 +823,15 @@ function renderDocument(options: {
         background: var(--accent-strong);
         box-shadow: 0 0 0 1px var(--accent-strong), 0 0 1.25rem rgba(123, 242, 196, 0.28);
       }
-      .cycle-turn-row {
-        align-items: center;
-        display: flex;
-        justify-content: space-between;
-        margin: -0.4rem 0;
-        min-height: 1.5rem;
-        pointer-events: none;
-        padding: 0 min(5rem, 12%);
-      }
       .cycle-turn {
         align-items: center;
         color: var(--accent);
         display: flex;
-        font-size: 1.5rem;
+        font-size: clamp(4rem, 9vw, 7rem);
         font-weight: 900;
         justify-content: center;
+        line-height: 0.8;
+        pointer-events: none;
       }
       .cycle-turn-left {
         color: var(--accent-strong);
@@ -897,15 +914,20 @@ function renderDocument(options: {
         font-size: 0.78rem;
         overflow-wrap: anywhere;
       }
+      .timeline-actions {
+        bottom: 0.55rem;
+        display: flex;
+        gap: 0.35rem;
+        justify-content: center;
+        left: 0.4rem;
+        position: absolute;
+        right: 0.4rem;
+      }
       .timeline-copy {
         background: #090c12;
-        bottom: 0.55rem;
         color: var(--text);
         font-size: 0.72rem;
-        left: 50%;
         padding: 0.38rem 0.5rem;
-        position: absolute;
-        transform: translateX(-50%);
         white-space: nowrap;
       }
       .timeline-hop {
@@ -1210,8 +1232,10 @@ function renderDocument(options: {
         }
         .planner-layout,
         .planner-timeline,
+        .planner-loop-center,
         .planner-controls,
-        .planner-endpoints {
+        .planner-endpoints,
+        .planner-command-row {
           grid-template-columns: 1fr;
         }
         .planner-settings {
@@ -1263,9 +1287,8 @@ function renderDocument(options: {
         .planner-return-timeline .timeline-hop:last-child::after {
           content: "";
         }
-        .cycle-turn-row {
-          margin: -0.25rem 0;
-          padding: 0;
+        .cycle-turn {
+          font-size: 3rem;
         }
       .market-search-row,
         .market-layout,
