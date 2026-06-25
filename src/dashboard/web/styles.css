@@ -232,6 +232,40 @@ canvas[data-inbound-chart] {
 }
 .planner-shell {
   min-height: 32rem;
+  position: relative;
+}
+.planner-loading-overlay {
+  align-items: center;
+  background: rgba(8, 9, 13, 0.72);
+  border-radius: 8px;
+  color: var(--text);
+  display: grid;
+  gap: 0.7rem;
+  inset: 0;
+  justify-items: center;
+  place-content: center;
+  position: absolute;
+  z-index: 10;
+}
+.planner-loading-overlay[hidden] {
+  display: none;
+}
+.planner-loading-icon {
+  animation: planner-spin 800ms linear infinite;
+  border: 3px solid rgba(72, 215, 255, 0.24);
+  border-radius: 999px;
+  border-top-color: var(--accent);
+  display: block;
+  height: 2.75rem;
+  width: 2.75rem;
+}
+.planner-loading-overlay strong {
+  font-size: 0.92rem;
+}
+@keyframes planner-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .planner-layout {
   display: grid;
@@ -868,4 +902,3 @@ th {
     grid-template-columns: 1fr;
   }
 }
-

@@ -291,7 +291,6 @@
     }
 
     setPlannerStatus(formatNumber(plannerState.commodities.length) + " commodities");
-    buildPlannerRoute().catch((error) => setPlannerStatus(error instanceof Error ? error.message : String(error)));
   }
 
   async function useBestPlannerCommodity() {
@@ -314,26 +313,32 @@
     });
 
     setPlannerStatus("Finding best route");
-    const response = await window.fetch("/dashboard/data/route-planner/best-trade-route?" + params.toString(), {
-      headers: {
-        Accept: "application/json",
-      },
-    });
+    setPlannerLoading(true);
 
-    if (!response.ok) {
-      setPlannerStatus("Best route failed");
-      return;
+    try {
+      const response = await window.fetch("/dashboard/data/route-planner/best-trade-route?" + params.toString(), {
+        headers: {
+          Accept: "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        setPlannerStatus("Best route failed");
+        return;
+      }
+
+      const result = await response.json();
+
+      if (!result.route) {
+        setPlannerStatus("No best route");
+        return;
+      }
+
+      commoditySelect.value = result.route.commodity.id;
+      renderPlannerRoute(result.route);
+    } finally {
+      setPlannerLoading(false);
     }
-
-    const result = await response.json();
-
-    if (!result.route) {
-      setPlannerStatus("No best route");
-      return;
-    }
-
-    commoditySelect.value = result.route.commodity.id;
-    renderPlannerRoute(result.route);
   }
 
   async function buildPlannerRoute() {
@@ -373,30 +378,54 @@
     });
 
     setPlannerStatus("Finding buyer");
-    const response = await window.fetch("/dashboard/data/route-planner/trade-route?" + params.toString(), {
-      headers: {
-        Accept: "application/json",
-      },
-    });
+    setPlannerLoading(true);
 
-    if (!response.ok) {
-      track.replaceChildren(renderPlannerMessage("Could not build a trade route for those settings."));
-      clearPlannerRoute();
-      setPlannerStatus("Route failed");
-      return;
+    try {
+      const response = await window.fetch("/dashboard/data/route-planner/trade-route?" + params.toString(), {
+        headers: {
+          Accept: "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        track.replaceChildren(renderPlannerMessage("Could not build a trade route for those settings."));
+        clearPlannerRoute();
+        setPlannerStatus("Route failed");
+        return;
+      }
+
+      const result = await response.json();
+
+      if (!result.route) {
+        track.replaceChildren(renderPlannerMessage("No buyer found inside " + formatNumber(maxRange * maxJumps) + " ly with " + formatPadSize(readPlannerPadSize()) + " pads."));
+        clearPlannerRoute();
+        setPlannerBuyerLabel("No match");
+        setPlannerStatus("No route");
+        return;
+      }
+
+      renderPlannerRoute(result.route);
+    } finally {
+      setPlannerLoading(false);
+    }
+  }
+
+  function setPlannerLoading(isLoading) {
+    const overlay = select("[data-planner-loading]");
+    const buildButton = select("[data-planner-build]");
+    const useBestButton = select("[data-planner-use-best]");
+
+    if (overlay instanceof HTMLElement) {
+      overlay.hidden = !isLoading;
     }
 
-    const result = await response.json();
-
-    if (!result.route) {
-      track.replaceChildren(renderPlannerMessage("No buyer found inside " + formatNumber(maxRange * maxJumps) + " ly with " + formatPadSize(readPlannerPadSize()) + " pads."));
-      clearPlannerRoute();
-      setPlannerBuyerLabel("No match");
-      setPlannerStatus("No route");
-      return;
+    if (buildButton instanceof HTMLButtonElement) {
+      buildButton.disabled = isLoading;
     }
 
-    renderPlannerRoute(result.route);
+    if (useBestButton instanceof HTMLButtonElement) {
+      useBestButton.disabled = isLoading || plannerState.commodities.length === 0;
+    }
   }
 
   function renderPlannerRoute(route) {
@@ -1134,7 +1163,9 @@
 
     if (plannerCommoditySelect instanceof HTMLSelectElement) {
       plannerCommoditySelect.addEventListener("change", () => {
-        buildPlannerRoute().catch((error) => setPlannerStatus(error instanceof Error ? error.message : String(error)));
+        clearPlannerRoute();
+        setPlannerBuyerLabel("Best match");
+        setPlannerStatus("Ready to build");
       });
     }
 
@@ -1153,12 +1184,9 @@
     [plannerMaxRangeInput, plannerMaxJumpsInput, plannerPadSizeSelect, plannerIncludeFleetCarriersInput, plannerIncludePlanetaryInput].forEach((control) => {
       if (control) {
         control.addEventListener("change", () => {
-          if ((control === plannerPadSizeSelect || control === plannerIncludeFleetCarriersInput || control === plannerIncludePlanetaryInput) && plannerState.pickup) {
-            loadPlannerCommodities().catch((error) => setPlannerStatus(error instanceof Error ? error.message : String(error)));
-            return;
-          }
-
-          buildPlannerRoute().catch((error) => setPlannerStatus(error instanceof Error ? error.message : String(error)));
+          clearPlannerRoute();
+          setPlannerBuyerLabel("Best match");
+          setPlannerStatus("Settings changed");
         });
       }
     });

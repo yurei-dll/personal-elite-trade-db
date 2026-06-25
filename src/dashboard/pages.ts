@@ -179,6 +179,10 @@ function renderRoutePlannerSection(): string {
           </div>
           <span class="pill" data-planner-status>Choose pickup</span>
         </div>
+        <div class="planner-loading-overlay" data-planner-loading hidden>
+          <span class="planner-loading-icon" aria-hidden="true"></span>
+          <strong>Building route</strong>
+        </div>
         <div class="planner-layout">
           <div class="planner-timeline" data-planner-timeline>
             <div class="timeline-node endpoint">
