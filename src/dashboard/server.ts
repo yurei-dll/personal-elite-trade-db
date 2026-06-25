@@ -14,24 +14,21 @@ import {
 } from "./index";
 import type { InboundMessageTracker } from "./inbound_messages";
 import {
-  DASHBOARD_SCRIPT,
   HTMX_SCRIPT,
-  MARKET_BROWSER_SCRIPT,
-  ROUTE_PLANNER_SCRIPT,
-  STATION_BROWSER_SCRIPT,
   THREE_CORE_SCRIPT,
   THREE_MODULE_SCRIPT,
-} from "./web/assets";
+  readDashboardWebAsset,
+} from "./assets";
 import {
   renderDashboardPage,
   renderLoginPage,
   renderSummarySection,
-} from "./web/pages";
+} from "./pages";
 import type {
   DashboardHealth,
   DashboardSession,
   DashboardStats,
-} from "./web/types";
+} from "./types";
 
 const DEFAULT_DASHBOARD_HOST = "127.0.0.1";
 const DEFAULT_DASHBOARD_PORT = 8787;
@@ -236,29 +233,36 @@ export async function startDashboardServer(
     });
   });
 
+  app.get("/dashboard/assets/styles.css", (context) => {
+    return context.body(readDashboardWebAsset("styles.css"), 200, {
+      "Cache-Control": "no-store",
+      "Content-Type": "text/css; charset=utf-8",
+    });
+  });
+
   app.get("/dashboard/assets/dashboard.js", (context) => {
-    return context.body(DASHBOARD_SCRIPT, 200, {
+    return context.body(readDashboardWebAsset("dashboard.js"), 200, {
       "Cache-Control": "no-store",
       "Content-Type": "text/javascript; charset=utf-8",
     });
   });
 
   app.get("/dashboard/assets/route-planner.js", (context) => {
-    return context.body(ROUTE_PLANNER_SCRIPT, 200, {
+    return context.body(readDashboardWebAsset("route-planner.js"), 200, {
       "Cache-Control": "no-store",
       "Content-Type": "text/javascript; charset=utf-8",
     });
   });
 
   app.get("/dashboard/assets/market-browser.js", (context) => {
-    return context.body(MARKET_BROWSER_SCRIPT, 200, {
+    return context.body(readDashboardWebAsset("market-browser.js"), 200, {
       "Cache-Control": "no-store",
       "Content-Type": "text/javascript; charset=utf-8",
     });
   });
 
   app.get("/dashboard/assets/station-browser.js", (context) => {
-    return context.body(STATION_BROWSER_SCRIPT, 200, {
+    return context.body(readDashboardWebAsset("station-browser.js"), 200, {
       "Cache-Control": "no-store",
       "Content-Type": "text/javascript; charset=utf-8",
     });
