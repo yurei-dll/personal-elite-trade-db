@@ -305,7 +305,7 @@
     setPlannerStatus(formatNumber(plannerState.commodities.length) + " commodities");
   }
 
-  async function useBestPlannerCommodity() {
+  function useBestPlannerCommodity() {
     const commoditySelect = select("[data-planner-commodity]");
 
     if (!(commoditySelect instanceof HTMLSelectElement) || !plannerState.pickup || plannerState.commodities.length === 0) {
@@ -313,44 +313,35 @@
       return;
     }
 
-    const maxRange = Math.max(1, readPlannerNumber("[data-planner-max-range]", 30));
-    const maxJumps = Math.max(1, readPlannerInteger("[data-planner-max-jumps]", 8));
-    const params = new URLSearchParams({
-      includeFleetCarriers: String(readPlannerIncludeFleetCarriers()),
-      includePlanetary: String(readPlannerIncludePlanetary()),
-      maxJumps: String(maxJumps),
-      maxRange: String(maxRange),
-      originSystemId: String(plannerState.pickup.id),
-      padSize: readPlannerPadSize(),
-    });
+    const bestCommodity = plannerState.commodities.slice().sort(comparePlannerCommodityValue)[0];
 
-    setPlannerStatus("Finding best route");
-    setPlannerLoading(true);
-
-    try {
-      const response = await window.fetch("/dashboard/data/route-planner/best-trade-route?" + params.toString(), {
-        headers: {
-          Accept: "application/json",
-        },
-      });
-
-      if (!response.ok) {
-        setPlannerStatus("Best route failed");
-        return;
-      }
-
-      const result = await response.json();
-
-      if (!result.route) {
-        setPlannerStatus("No best route");
-        return;
-      }
-
-      commoditySelect.value = result.route.commodity.id;
-      renderPlannerRoute(result.route);
-    } finally {
-      setPlannerLoading(false);
+    if (!bestCommodity) {
+      setPlannerStatus("No commodities");
+      return;
     }
+
+    commoditySelect.value = bestCommodity.id;
+    clearPlannerRoute("Route will be built when Build route is pressed.");
+    setPlannerBuyerLabel("Best match");
+    setPlannerStatus("Selected " + bestCommodity.name);
+  }
+
+  function comparePlannerCommodityValue(left, right) {
+    const leftStock = typeof left.stock === "number" ? left.stock : -1;
+    const rightStock = typeof right.stock === "number" ? right.stock : -1;
+
+    if (leftStock !== rightStock) {
+      return rightStock - leftStock;
+    }
+
+    const leftPrice = typeof left.stationSellPrice === "number" ? left.stationSellPrice : Number.POSITIVE_INFINITY;
+    const rightPrice = typeof right.stationSellPrice === "number" ? right.stationSellPrice : Number.POSITIVE_INFINITY;
+
+    if (leftPrice !== rightPrice) {
+      return leftPrice - rightPrice;
+    }
+
+    return String(left.name || "").localeCompare(String(right.name || ""));
   }
 
   async function buildPlannerRoute() {
@@ -1257,9 +1248,7 @@
     }
 
     if (plannerUseBestButton instanceof HTMLButtonElement) {
-      plannerUseBestButton.addEventListener("click", () => {
-        useBestPlannerCommodity().catch((error) => setPlannerStatus(error instanceof Error ? error.message : String(error)));
-      });
+      plannerUseBestButton.addEventListener("click", useBestPlannerCommodity);
     }
 
     [plannerMaxRangeInput, plannerMaxJumpsInput, plannerPadSizeSelect, plannerIncludeFleetCarriersInput, plannerIncludePlanetaryInput].forEach((control) => {
