@@ -361,9 +361,10 @@ export function routePlannerBestTradeRouteQuery(options: {
         power(destination_systems.z - origin.z, 2)
       ) <= $2::double precision
     ORDER BY
+      destination_markets.station_buy_price DESC NULLS LAST,
+      destination_markets.demand DESC NULLS LAST,
       profit DESC NULLS LAST,
       distance ASC,
-      destination_markets.station_buy_price DESC NULLS LAST,
       destination_stations.distance_to_arrival ASC NULLS LAST
     LIMIT 1
   `;
