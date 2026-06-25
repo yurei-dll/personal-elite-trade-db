@@ -659,6 +659,12 @@ canvas[data-inbound-chart] {
   color: var(--text);
   margin: 0.18rem 0 0;
 }
+.icon-action-button {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.55rem;
+  justify-content: center;
+}
 .route-selection-panel button {
   width: 100%;
 }
@@ -748,7 +754,7 @@ canvas[data-route-canvas]:not([hidden]) ~ .route-map-placeholder {
   white-space: nowrap;
   z-index: 2;
 }
-.route-hover-icon {
+.action-sprite-icon {
   border: 1px solid var(--accent);
   border-radius: 2px;
   display: inline-block;
@@ -757,7 +763,7 @@ canvas[data-route-canvas]:not([hidden]) ~ .route-map-placeholder {
   position: relative;
   width: 0.72rem;
 }
-.route-hover-icon::before {
+.action-sprite-icon::before {
   background: var(--accent);
   content: "";
   height: 1px;
@@ -768,7 +774,7 @@ canvas[data-route-canvas]:not([hidden]) ~ .route-map-placeholder {
   transform-origin: right center;
   width: 0.55rem;
 }
-.route-hover-icon::after {
+.action-sprite-icon::after {
   border-right: 1px solid var(--accent);
   border-top: 1px solid var(--accent);
   content: "";

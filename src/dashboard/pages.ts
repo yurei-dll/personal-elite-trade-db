@@ -320,8 +320,27 @@ function renderGalaxyMapSection(): string {
                   <dt>Reference distance</dt>
                   <dd data-route-selection-distance>--</dd>
                 </div>
+                <div>
+                  <dt>Markets</dt>
+                  <dd data-route-selection-markets>--</dd>
+                </div>
+                <div>
+                  <dt>Carriers</dt>
+                  <dd data-route-selection-carriers>--</dd>
+                </div>
+                <div>
+                  <dt>Planetary markets</dt>
+                  <dd data-route-selection-planetary-markets>--</dd>
+                </div>
               </dl>
-              <button type="button" class="secondary" data-route-open-selected disabled>Open in new tab</button>
+              <button type="button" class="secondary icon-action-button" data-route-open-selected disabled>
+                <span class="action-sprite-icon" aria-hidden="true"></span>
+                <span>Browse system</span>
+              </button>
+              <button type="button" class="secondary icon-action-button" data-route-use-selected disabled>
+                <span class="action-sprite-icon" aria-hidden="true"></span>
+                <span>Use in planner</span>
+              </button>
             </section>
             <div class="route-control-grid">
               <label>

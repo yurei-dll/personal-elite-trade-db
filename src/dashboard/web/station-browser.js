@@ -139,7 +139,10 @@
 
   function createSummaryActions(station) {
     const actions = createElement("div", { className: "summary-actions" });
-    const button = createElement("button", { className: "secondary" }, "Use in planner");
+    const button = createElement("button", { className: "secondary icon-action-button" }, [
+      createElement("span", { className: "action-sprite-icon" }),
+      createElement("span", {}, "Use in planner"),
+    ]);
 
     button.type = "button";
     button.addEventListener("click", () => {

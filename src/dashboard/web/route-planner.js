@@ -19,11 +19,15 @@
     raycaster: undefined,
     referenceSystem: undefined,
     renderer: undefined,
+    routeLine: undefined,
+    routePreviousReference: undefined,
+    routeToView: undefined,
     routeViewingMode: false,
     scene: undefined,
     searchResults: [],
     searchToken: 0,
     selectedSystem: undefined,
+    selectedSystemStatsToken: 0,
     systemLabels: undefined,
     systems: [],
     three: undefined,
@@ -806,7 +810,14 @@
   }
 
   function setRouteViewingMode(isViewing, route) {
+    const wasViewingRoute = state.routeViewingMode;
+
+    if (isViewing && !wasViewingRoute) {
+      state.routePreviousReference = readRouteReferenceSnapshot();
+    }
+
     state.routeViewingMode = isViewing;
+    state.routeToView = isViewing ? route : undefined;
 
     const banner = select("[data-route-view-banner]");
     const frame = select(".route-map-frame");
@@ -829,10 +840,55 @@
     if (isViewing) {
       const destinationName = route?.destination?.systemName || "route";
       setStatus("Route view: " + destinationName);
+      renderViewedRoute(route);
       return;
     }
 
+    restoreRouteReferenceSnapshot();
     setStatus(state.enabled ? "Route view closed." : "3D map is not loaded.");
+    loadSystems().catch((error) => setStatus(error instanceof Error ? error.message : String(error)));
+  }
+
+  function readRouteReferenceSnapshot() {
+    const reference = select("[data-route-reference]");
+
+    return {
+      label: reference?.textContent || "Reference: galactic origin",
+      x: readNumberInput("[data-route-origin-x]", 0),
+      y: readNumberInput("[data-route-origin-y]", 0),
+      z: readNumberInput("[data-route-origin-z]", 0),
+    };
+  }
+
+  function restoreRouteReferenceSnapshot() {
+    const snapshot = state.routePreviousReference;
+
+    if (!snapshot) {
+      return;
+    }
+
+    const reference = select("[data-route-reference]");
+    const xInput = select("[data-route-origin-x]");
+    const yInput = select("[data-route-origin-y]");
+    const zInput = select("[data-route-origin-z]");
+
+    if (reference) {
+      reference.textContent = snapshot.label;
+    }
+
+    if (xInput instanceof HTMLInputElement) {
+      xInput.value = String(snapshot.x);
+    }
+
+    if (yInput instanceof HTMLInputElement) {
+      yInput.value = String(snapshot.y);
+    }
+
+    if (zInput instanceof HTMLInputElement) {
+      zInput.value = String(snapshot.z);
+    }
+
+    state.routePreviousReference = undefined;
   }
 
   function updateRouteReferenceControls() {
@@ -930,6 +986,10 @@
     const coordinates = select("[data-route-selection-coordinates]");
     const distance = select("[data-route-selection-distance]");
     const openButton = select("[data-route-open-selected]");
+    const useButton = select("[data-route-use-selected]");
+    const token = state.selectedSystemStatsToken + 1;
+
+    state.selectedSystemStatsToken = token;
 
     if (name) {
       name.textContent = system?.name || "No system selected";
@@ -950,6 +1010,73 @@
     if (openButton instanceof HTMLButtonElement) {
       openButton.disabled = !system;
     }
+
+    if (useButton instanceof HTMLButtonElement) {
+      useButton.disabled = !system;
+    }
+
+    renderSelectedRouteSystemStats(system);
+
+    if (system && !hasRouteSystemStats(system)) {
+      hydrateSelectedRouteSystemStats(system.id, token).catch((error) => setStatus(error instanceof Error ? error.message : String(error)));
+    }
+  }
+
+  function hasRouteSystemStats(system) {
+    return typeof system.marketCount === "number"
+      && typeof system.carrierCount === "number"
+      && typeof system.planetaryMarketCount === "number";
+  }
+
+  function renderSelectedRouteSystemStats(system) {
+    const markets = select("[data-route-selection-markets]");
+    const carriers = select("[data-route-selection-carriers]");
+    const planetaryMarkets = select("[data-route-selection-planetary-markets]");
+    const fallback = system ? "Loading..." : "--";
+
+    if (markets) {
+      markets.textContent = typeof system?.marketCount === "number" ? formatNumber(system.marketCount) : fallback;
+    }
+
+    if (carriers) {
+      carriers.textContent = typeof system?.carrierCount === "number" ? formatNumber(system.carrierCount) : fallback;
+    }
+
+    if (planetaryMarkets) {
+      planetaryMarkets.textContent = typeof system?.planetaryMarketCount === "number" ? formatNumber(system.planetaryMarketCount) : fallback;
+    }
+  }
+
+  async function hydrateSelectedRouteSystemStats(systemId, token) {
+    const response = await window.fetch("/dashboard/data/route-planner/systems/" + encodeURIComponent(systemId), {
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (token !== state.selectedSystemStatsToken || !response.ok) {
+      return;
+    }
+
+    const result = await response.json();
+    const hydratedSystem = result?.system;
+
+    if (!hydratedSystem || hydratedSystem.id !== state.selectedSystem?.id) {
+      return;
+    }
+
+    state.selectedSystem = {
+      ...state.selectedSystem,
+      carrierCount: Number(hydratedSystem.carrierCount) || 0,
+      marketCount: Number(hydratedSystem.marketCount) || 0,
+      planetaryMarketCount: Number(hydratedSystem.planetaryMarketCount) || 0,
+    };
+    state.systems = state.systems.map((system) => (
+      system.id === state.selectedSystem?.id
+        ? { ...system, ...state.selectedSystem }
+        : system
+    ));
+    renderSelectedRouteSystemStats(state.selectedSystem);
   }
 
   function openSelectedRouteSystem() {
@@ -969,6 +1096,20 @@
     }));
   }
 
+  function useSelectedRouteSystemInPlanner() {
+    const system = state.selectedSystem;
+
+    if (!system) {
+      setStatus("Select a system on the map first.");
+      return;
+    }
+
+    window.dispatchEvent(new CustomEvent("petdb:use-system-in-planner", {
+      detail: system,
+    }));
+    setStatus(system.name + " sent to planner.");
+  }
+
   function setHoverSystem(system, event, canvas) {
     const hover = select("[data-route-hover]");
 
@@ -985,11 +1126,10 @@
     }
 
     const rect = canvas.getBoundingClientRect();
-    const icon = createElement("span", { className: "route-hover-icon" });
     const name = createElement("span", { className: "route-hover-name" }, system.name);
 
     hover.hidden = false;
-    hover.replaceChildren(icon, name);
+    hover.replaceChildren(name);
     hover.style.left = Math.round(event.clientX - rect.left) + "px";
     hover.style.top = Math.round(event.clientY - rect.top) + "px";
   }
@@ -1046,6 +1186,7 @@
 
     initializeScene(canvas, state.three);
     if (state.routeViewingMode) {
+      renderViewedRoute(state.routeToView);
       setStatus("Route view ready.");
       return;
     }
@@ -1185,6 +1326,104 @@
     setStatus("Showing " + formatNumber(state.systems.length) + " nearest systems.");
   }
 
+  function renderViewedRoute(route) {
+    if (!state.enabled || !route || !plannerState.pickup) {
+      return;
+    }
+
+    const routeSystems = buildViewedRouteSystems(route);
+
+    if (routeSystems.length === 0) {
+      setStatus("Route view could not find route systems.");
+      return;
+    }
+
+    const origin = calculateRouteCenter(routeSystems);
+    const reference = select("[data-route-reference]");
+    const xInput = select("[data-route-origin-x]");
+    const yInput = select("[data-route-origin-y]");
+    const zInput = select("[data-route-origin-z]");
+
+    if (xInput instanceof HTMLInputElement) {
+      xInput.value = String(origin.x);
+    }
+
+    if (yInput instanceof HTMLInputElement) {
+      yInput.value = String(origin.y);
+    }
+
+    if (zInput instanceof HTMLInputElement) {
+      zInput.value = String(origin.z);
+    }
+
+    if (reference) {
+      reference.textContent = "Reference: route center (" + [origin.x, origin.y, origin.z].map(formatNumber).join(", ") + ")";
+    }
+
+    state.systems = routeSystems.map((system) => ({
+      ...system,
+      distance: calculateRouteDistance(origin, system),
+    }));
+    if (state.selectedSystem && !state.systems.some((system) => system.id === state.selectedSystem?.id)) {
+      setSelectedRouteSystem(undefined);
+    }
+    renderSystems(origin);
+    setStatus("Route view: " + routeSystems[0].name + " to " + routeSystems[routeSystems.length - 1].name + ".");
+  }
+
+  function buildViewedRouteSystems(route) {
+    const systemsById = new Map();
+    const addSystem = (system) => {
+      if (!system?.id) {
+        return;
+      }
+
+      systemsById.set(system.id, {
+        id: system.id,
+        name: system.name || system.systemName || "Unknown system",
+        x: Number(system.x) || 0,
+        y: Number(system.y) || 0,
+        z: Number(system.z) || 0,
+      });
+    };
+
+    addSystem(plannerState.pickup);
+    readPlannerWaypoints(route).forEach((waypoint) => addSystem(waypoint));
+    addSystem({
+      id: route.destination?.systemId,
+      name: route.destination?.systemName,
+      x: route.destination?.x,
+      y: route.destination?.y,
+      z: route.destination?.z,
+    });
+
+    return [...systemsById.values()];
+  }
+
+  function calculateRouteCenter(systems) {
+    const bounds = systems.reduce((current, system) => ({
+      maxX: Math.max(current.maxX, Number(system.x) || 0),
+      maxY: Math.max(current.maxY, Number(system.y) || 0),
+      maxZ: Math.max(current.maxZ, Number(system.z) || 0),
+      minX: Math.min(current.minX, Number(system.x) || 0),
+      minY: Math.min(current.minY, Number(system.y) || 0),
+      minZ: Math.min(current.minZ, Number(system.z) || 0),
+    }), {
+      maxX: Number.NEGATIVE_INFINITY,
+      maxY: Number.NEGATIVE_INFINITY,
+      maxZ: Number.NEGATIVE_INFINITY,
+      minX: Number.POSITIVE_INFINITY,
+      minY: Number.POSITIVE_INFINITY,
+      minZ: Number.POSITIVE_INFINITY,
+    });
+
+    return {
+      x: (bounds.minX + bounds.maxX) / 2,
+      y: (bounds.minY + bounds.maxY) / 2,
+      z: (bounds.minZ + bounds.maxZ) / 2,
+    };
+  }
+
   function renderSystems(origin) {
     if (!state.three || !state.group) {
       return;
@@ -1202,6 +1441,13 @@
       state.guideLines.geometry.dispose();
       state.guideLines.material.dispose();
       state.guideLines = undefined;
+    }
+
+    if (state.routeLine) {
+      state.group.remove(state.routeLine);
+      state.routeLine.geometry.dispose();
+      state.routeLine.material.dispose();
+      state.routeLine = undefined;
     }
 
     clearGridLabels();
@@ -1279,10 +1525,27 @@
     state.guideLines = new three.LineSegments(guideLineGeometry, guideLineMaterial);
     state.points = new three.Points(geometry, material);
     state.systemLabels = createSystemLabels(three, positions);
+    state.routeLine = state.routeViewingMode ? createRouteLine(three, positions) : undefined;
     state.group.add(state.guideLines);
+    if (state.routeLine) {
+      state.group.add(state.routeLine);
+    }
     state.group.add(state.points);
     state.group.add(state.systemLabels);
     updateSystemLabelVisibility();
+  }
+
+  function createRouteLine(three, positions) {
+    const geometry = new three.BufferGeometry();
+    geometry.setAttribute("position", new three.BufferAttribute(positions, 3));
+    const material = new three.LineBasicMaterial({
+      color: 0x2f9dff,
+      linewidth: 2,
+      opacity: 0.95,
+      transparent: true,
+    });
+
+    return new three.Line(geometry, material);
   }
 
   function clearSystemLabels() {
@@ -1677,6 +1940,7 @@
 
     const loadButton = select("[data-route-load]");
     const openSelectedRouteButton = select("[data-route-open-selected]");
+    const useSelectedRouteButton = select("[data-route-use-selected]");
     const routeLimitSelect = select("[data-route-limit]");
     const referenceInput = select("[data-route-reference-search]");
     const setReferenceButton = select("[data-route-set-reference]");
@@ -1710,6 +1974,10 @@
 
     if (openSelectedRouteButton instanceof HTMLButtonElement) {
       openSelectedRouteButton.addEventListener("click", openSelectedRouteSystem);
+    }
+
+    if (useSelectedRouteButton instanceof HTMLButtonElement) {
+      useSelectedRouteButton.addEventListener("click", useSelectedRouteSystemInPlanner);
     }
 
     if (routeLimitSelect instanceof HTMLSelectElement) {

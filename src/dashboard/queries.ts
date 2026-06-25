@@ -14,17 +14,29 @@ export const dashboardStatsQuery = `
 
 export const routePlannerSystemsQuery = `
   SELECT
-    id::text,
-    name,
-    x,
-    y,
-    z,
+    systems.id::text,
+    systems.name,
+    systems.x,
+    systems.y,
+    systems.z,
+    count(stations.id) FILTER (WHERE stations.has_market = true) AS market_count,
+    count(stations.id) FILTER (
+      WHERE stations.has_market = true
+        AND regexp_replace(lower(coalesce(stations.type, '')), '[^a-z0-9]', '', 'g') = 'fleetcarrier'
+    ) AS carrier_count,
+    count(stations.id) FILTER (
+      WHERE stations.has_market = true
+        AND ${buildPlanetaryPortExpression("stations")}
+    ) AS planetary_market_count,
     sqrt(
-      power(x - $1::double precision, 2) +
-      power(y - $2::double precision, 2) +
-      power(z - $3::double precision, 2)
+      power(systems.x - $1::double precision, 2) +
+      power(systems.y - $2::double precision, 2) +
+      power(systems.z - $3::double precision, 2)
     ) AS distance
   FROM systems
+  LEFT JOIN stations
+    ON stations.system_id = systems.id
+  GROUP BY systems.id, systems.name, systems.x, systems.y, systems.z
   ORDER BY distance ASC
   LIMIT $4
 `;
@@ -49,13 +61,25 @@ export const systemSearchQuery = `
 
 export const systemByIdQuery = `
   SELECT
-    id::text,
-    name,
-    x,
-    y,
-    z
+    systems.id::text,
+    systems.name,
+    systems.x,
+    systems.y,
+    systems.z,
+    count(stations.id) FILTER (WHERE stations.has_market = true) AS market_count,
+    count(stations.id) FILTER (
+      WHERE stations.has_market = true
+        AND regexp_replace(lower(coalesce(stations.type, '')), '[^a-z0-9]', '', 'g') = 'fleetcarrier'
+    ) AS carrier_count,
+    count(stations.id) FILTER (
+      WHERE stations.has_market = true
+        AND ${buildPlanetaryPortExpression("stations")}
+    ) AS planetary_market_count
   FROM systems
-  WHERE id = $1::bigint
+  LEFT JOIN stations
+    ON stations.system_id = systems.id
+  WHERE systems.id = $1::bigint
+  GROUP BY systems.id, systems.name, systems.x, systems.y, systems.z
 `;
 
 export const stationSearchQuery = `

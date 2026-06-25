@@ -85,17 +85,23 @@ interface DashboardStatsRow {
 }
 
 interface RoutePlannerSystemRow {
+  readonly carrier_count: string | number | null;
   readonly distance: string | number;
   readonly id: string | number;
+  readonly market_count: string | number | null;
   readonly name: string;
+  readonly planetary_market_count: string | number | null;
   readonly x: string | number;
   readonly y: string | number;
   readonly z: string | number;
 }
 
 interface RoutePlannerSearchSystemRow {
+  readonly carrier_count?: string | number | null;
   readonly id: string | number;
+  readonly market_count?: string | number | null;
   readonly name: string;
+  readonly planetary_market_count?: string | number | null;
   readonly x: string | number;
   readonly y: string | number;
   readonly z: string | number;
@@ -416,9 +422,12 @@ export async function startDashboardServer(
       limit,
       origin,
       systems: result.rows.map((row) => ({
+        carrierCount: readOptionalNumber(row.carrier_count) ?? 0,
         distance: readOptionalNumber(row.distance) ?? 0,
         id: String(row.id),
+        marketCount: readOptionalNumber(row.market_count) ?? 0,
         name: row.name,
+        planetaryMarketCount: readOptionalNumber(row.planetary_market_count) ?? 0,
         x: readOptionalNumber(row.x) ?? 0,
         y: readOptionalNumber(row.y) ?? 0,
         z: readOptionalNumber(row.z) ?? 0,
@@ -480,8 +489,11 @@ export async function startDashboardServer(
 
     return context.json({
       system: {
+        carrierCount: readOptionalNumber(row.carrier_count) ?? 0,
         id: String(row.id),
+        marketCount: readOptionalNumber(row.market_count) ?? 0,
         name: row.name,
+        planetaryMarketCount: readOptionalNumber(row.planetary_market_count) ?? 0,
         x: readOptionalNumber(row.x) ?? 0,
         y: readOptionalNumber(row.y) ?? 0,
         z: readOptionalNumber(row.z) ?? 0,
