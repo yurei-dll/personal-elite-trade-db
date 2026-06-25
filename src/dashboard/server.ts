@@ -128,6 +128,20 @@ interface RoutePlannerWaypointRow {
   readonly z: string | number;
 }
 
+interface RoutePlannerReturnHaulRow {
+  readonly commodity_category: string | null;
+  readonly commodity_id: string;
+  readonly commodity_name: string;
+  readonly destination_station_id: string | number;
+  readonly destination_station_name: string;
+  readonly profit: string | number | null;
+  readonly source_station_id: string | number;
+  readonly source_station_name: string;
+  readonly station_buy_price: string | number | null;
+  readonly station_sell_price: string | number | null;
+  readonly stock: string | number | null;
+}
+
 interface MarketBrowserSystemRow {
   readonly id: string | number;
   readonly name: string;
@@ -664,6 +678,11 @@ export async function startDashboardServer(
           originSystemId,
         })
       : [];
+    const returnHaul = await readRoutePlannerReturnHaul(options.database, {
+      destinationSystemId: destination.systemId,
+      originSystemId,
+      padSize,
+    });
 
     return context.json({
       maxDistance,
@@ -687,6 +706,7 @@ export async function startDashboardServer(
           stock: readOptionalNumber(row.stock),
         },
         stationBuyPrice: readOptionalNumber(row.station_buy_price),
+        returnHaul,
         waypoints,
       },
     });
@@ -1296,6 +1316,107 @@ async function readRoutePlannerWaypoints(
     y: readOptionalNumber(row.y) ?? 0,
     z: readOptionalNumber(row.z) ?? 0,
   }));
+}
+
+async function readRoutePlannerReturnHaul(
+  database: DatabaseManager,
+  options: {
+    readonly destinationSystemId: string;
+    readonly originSystemId: string;
+    readonly padSize: "M" | "L";
+  },
+): Promise<{
+  readonly commodity: {
+    readonly category: string | null;
+    readonly id: string;
+    readonly name: string;
+  };
+  readonly destination: {
+    readonly stationId: string;
+    readonly stationName: string;
+    readonly stationBuyPrice: number | undefined;
+  };
+  readonly profit: number | undefined;
+  readonly source: {
+    readonly stationId: string;
+    readonly stationName: string;
+    readonly stationSellPrice: number | undefined;
+    readonly stock: number | undefined;
+  };
+} | null> {
+  const result = await database.query<RoutePlannerReturnHaulRow>(
+    `
+      WITH source_offers AS (
+        SELECT
+          stations.id,
+          stations.name,
+          station_commodities.commodity_id,
+          station_commodities.station_sell_price,
+          station_commodities.stock
+        FROM stations
+        JOIN station_commodities
+          ON station_commodities.station_id = stations.id
+        WHERE stations.system_id = $1::bigint
+          AND stations.has_market = true
+          AND station_commodities.station_sell_price > 0
+          AND ${buildLandingPadPredicate("stations", options.padSize)}
+      )
+      SELECT
+        commodities.id AS commodity_id,
+        commodities.name AS commodity_name,
+        commodities.category AS commodity_category,
+        source_offers.id::text AS source_station_id,
+        source_offers.name AS source_station_name,
+        source_offers.station_sell_price,
+        source_offers.stock,
+        destination_stations.id::text AS destination_station_id,
+        destination_stations.name AS destination_station_name,
+        destination_markets.station_buy_price,
+        destination_markets.station_buy_price - source_offers.station_sell_price AS profit
+      FROM source_offers
+      JOIN commodities
+        ON commodities.id = source_offers.commodity_id
+      JOIN station_commodities AS destination_markets
+        ON destination_markets.commodity_id = source_offers.commodity_id
+      JOIN stations AS destination_stations
+        ON destination_stations.id = destination_markets.station_id
+      WHERE destination_stations.system_id = $2::bigint
+        AND destination_stations.has_market = true
+        AND destination_markets.station_buy_price > 0
+        AND ${buildLandingPadPredicate("destination_stations", options.padSize)}
+      ORDER BY
+        profit DESC NULLS LAST,
+        destination_markets.station_buy_price DESC NULLS LAST,
+        destination_stations.distance_to_arrival ASC NULLS LAST
+      LIMIT 1
+    `,
+    [options.destinationSystemId, options.originSystemId],
+  );
+  const row = result.rows[0];
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    commodity: {
+      category: row.commodity_category,
+      id: row.commodity_id,
+      name: row.commodity_name,
+    },
+    destination: {
+      stationBuyPrice: readOptionalNumber(row.station_buy_price),
+      stationId: String(row.destination_station_id),
+      stationName: row.destination_station_name,
+    },
+    profit: readOptionalNumber(row.profit),
+    source: {
+      stationId: String(row.source_station_id),
+      stationName: row.source_station_name,
+      stationSellPrice: readOptionalNumber(row.station_sell_price),
+      stock: readOptionalNumber(row.stock),
+    },
+  };
 }
 
 async function readDashboardHealth(

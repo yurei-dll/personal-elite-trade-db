@@ -230,6 +230,25 @@ function renderRoutePlannerSection(): string {
             </div>
             <button type="button" data-planner-build>Build route</button>
           </aside>
+          <section class="planner-cycle">
+            <div class="cycle-flow">
+              <article class="cycle-card" data-planner-outbound-haul>
+                <span>Outbound</span>
+                <strong>No route selected</strong>
+                <small>Choose a commodity to sell.</small>
+              </article>
+              <div class="cycle-arrow" aria-hidden="true">-></div>
+              <article class="cycle-card" data-planner-return-haul>
+                <span>Return</span>
+                <strong>No return haul</strong>
+                <small>Build a route to check the way back.</small>
+              </article>
+              <div class="cycle-arrow" aria-hidden="true">-></div>
+            </div>
+            <div class="planner-preview-frame">
+              <canvas data-planner-preview-canvas aria-label="3D route preview"></canvas>
+            </div>
+          </section>
         </div>
       </div>
     </section>
@@ -718,6 +737,52 @@ function renderDocument(options: {
       .planner-settings {
         grid-template-columns: repeat(3, minmax(0, 1fr));
       }
+      .planner-cycle {
+        display: grid;
+        gap: 1rem;
+        grid-template-columns: minmax(18rem, 0.9fr) minmax(0, 1.1fr);
+      }
+      .cycle-flow {
+        align-items: center;
+        display: grid;
+        gap: 0.75rem;
+        grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
+      }
+      .cycle-card {
+        background: #090c12;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        min-width: 0;
+        padding: 0.75rem;
+      }
+      .cycle-card span,
+      .cycle-card small {
+        color: var(--muted);
+        display: block;
+        font-size: 0.76rem;
+      }
+      .cycle-card strong {
+        display: block;
+        font-size: 0.95rem;
+        margin: 0.25rem 0;
+        overflow-wrap: anywhere;
+      }
+      .cycle-arrow {
+        color: var(--accent);
+        font-weight: 900;
+      }
+      .planner-preview-frame {
+        background: #090c12;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        min-height: 12rem;
+        overflow: hidden;
+      }
+      canvas[data-planner-preview-canvas] {
+        display: block;
+        height: 12rem;
+        width: 100%;
+      }
       .planner-timeline {
         align-items: center;
         background: #090c12;
@@ -1104,6 +1169,8 @@ function renderDocument(options: {
         }
         .planner-layout,
         .planner-timeline,
+        .planner-cycle,
+        .cycle-flow,
         .planner-controls,
         .planner-endpoints {
           grid-template-columns: 1fr;
