@@ -688,15 +688,20 @@
   function setRouteViewingMode(isViewing, route) {
     state.routeViewingMode = isViewing;
 
-    const exitButton = select("[data-route-exit-view]");
+    const banner = select("[data-route-view-banner]");
     const frame = select(".route-map-frame");
+    const title = select("[data-route-map-title]");
 
-    if (exitButton instanceof HTMLButtonElement) {
-      exitButton.hidden = !isViewing;
+    if (banner instanceof HTMLElement) {
+      banner.hidden = !isViewing;
     }
 
     if (frame instanceof HTMLElement) {
       frame.classList.toggle("route-viewing", isViewing);
+    }
+
+    if (title instanceof HTMLElement) {
+      title.hidden = isViewing;
     }
 
     updateRouteReferenceControls();

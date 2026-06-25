@@ -288,7 +288,7 @@ function renderGalaxyMapSection(): string {
         <div class="section-header">
           <div>
             <p class="eyebrow">Galaxy Map</p>
-            <h2 id="galaxy-map-tab-title">Nearby Systems Map</h2>
+            <h2 id="galaxy-map-tab-title" data-route-map-title>Nearby Systems Map</h2>
           </div>
           <span class="pill">3D disabled by default</span>
         </div>
@@ -322,7 +322,10 @@ function renderGalaxyMapSection(): string {
             <p class="route-selected" data-route-selected>No system selected.</p>
           </aside>
           <div class="route-map-frame">
-            <button type="button" class="route-exit-button" data-route-exit-view hidden>Exit route view</button>
+            <div class="route-view-banner" data-route-view-banner hidden>
+              <strong>Route view</strong>
+              <button type="button" class="route-exit-button" data-route-exit-view>Exit route view</button>
+            </div>
             <canvas data-route-canvas hidden aria-label="3D view of nearby systems"></canvas>
             <div class="route-hover-label" data-route-hover hidden></div>
             <div class="route-map-placeholder">3D map is disabled</div>

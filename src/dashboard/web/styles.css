@@ -608,15 +608,31 @@ canvas[data-inbound-chart] {
   overflow: hidden;
   position: relative;
 }
+.route-view-banner {
+  align-items: center;
+  background: rgba(17, 20, 28, 0.94);
+  border-bottom: 1px solid rgba(72, 215, 255, 0.45);
+  color: var(--text);
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  left: 0;
+  min-height: 3.25rem;
+  padding: 0.6rem 0.75rem;
+  position: absolute;
+  right: 0;
+  top: 0;
+  z-index: 4;
+}
+.route-view-banner strong {
+  font-size: 0.9rem;
+}
 .route-exit-button {
-  background: rgba(17, 20, 28, 0.92);
+  background: #090c12;
   border-color: rgba(72, 215, 255, 0.5);
+  color: var(--text);
   font-size: 0.82rem;
   padding: 0.5rem 0.75rem;
-  position: absolute;
-  right: 0.75rem;
-  top: 0.75rem;
-  z-index: 4;
 }
 .route-map-frame.route-viewing {
   border-color: rgba(72, 215, 255, 0.55);
