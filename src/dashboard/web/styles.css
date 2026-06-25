@@ -853,6 +853,11 @@ th {
 .status.ok { color: var(--accent-strong); }
 .status.warning { color: var(--warning); }
 .status.error { color: var(--danger); }
+.pill.loss {
+  border-color: rgba(255, 107, 122, 0.82);
+  box-shadow: 0 0 0 1px rgba(255, 107, 122, 0.22);
+  color: var(--danger);
+}
 .check-list {
   display: grid;
   gap: 0.75rem;

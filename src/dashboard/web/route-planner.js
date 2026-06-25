@@ -45,11 +45,12 @@
     return Number.isFinite(value) ? value : fallback;
   }
 
-  function setPlannerStatus(message) {
+  function setPlannerStatus(message, options) {
     const status = select("[data-planner-status]");
 
     if (status) {
       status.textContent = message;
+      status.classList.toggle("loss", Boolean(options?.isLoss));
     }
   }
 
@@ -334,11 +335,11 @@
       return rightStock - leftStock;
     }
 
-    const leftPrice = typeof left.stationSellPrice === "number" ? left.stationSellPrice : Number.POSITIVE_INFINITY;
-    const rightPrice = typeof right.stationSellPrice === "number" ? right.stationSellPrice : Number.POSITIVE_INFINITY;
+    const leftPrice = typeof left.stationSellPrice === "number" ? left.stationSellPrice : -1;
+    const rightPrice = typeof right.stationSellPrice === "number" ? right.stationSellPrice : -1;
 
     if (leftPrice !== rightPrice) {
-      return leftPrice - rightPrice;
+      return rightPrice - leftPrice;
     }
 
     return String(left.name || "").localeCompare(String(right.name || ""));
@@ -459,7 +460,10 @@
     updatePlannerPlanetaryEndpoint("destination", Boolean(route.destination?.isPlanetary));
     renderPlannerReturnTimeline(route);
     setPlannerBuyerLabel(route.destination.systemName);
-    setPlannerStatus(formatNumber(jumps) + " jumps | +" + formatCredits(route.profit ?? 0) + " | " + route.destination.stationName);
+    setPlannerStatus(
+      formatNumber(jumps) + " jumps | " + formatSignedCredits(route.profit ?? 0) + " | " + route.destination.stationName,
+      { isLoss: Number(route.profit) < 0 },
+    );
   }
 
   function readPlannerRoutePoints(route) {
@@ -509,7 +513,7 @@
     }
 
     const returnSummary = route.returnHaul
-      ? route.returnHaul.commodity.name + " | +" + formatCredits(route.returnHaul.profit ?? 0)
+      ? route.returnHaul.commodity.name + " | " + formatSignedCredits(route.returnHaul.profit ?? 0)
       : "No return haul found";
     const routePoints = readPlannerRoutePoints(route).slice().reverse();
     const returnHops = routePoints.slice(1).map((point, index) => ({
@@ -1168,6 +1172,13 @@
     return new Intl.NumberFormat("en-US", {
       maximumFractionDigits: 0,
     }).format(value) + " cr";
+  }
+
+  function formatSignedCredits(value) {
+    const numericValue = Number(value) || 0;
+    const prefix = numericValue > 0 ? "+" : "";
+
+    return prefix + formatCredits(numericValue);
   }
 
   window.addEventListener("DOMContentLoaded", () => {

@@ -136,6 +136,7 @@ export function routePlannerCommoditiesQuery(options: {
     WHERE stations.system_id = $1::bigint
       AND stations.has_market = true
       AND station_commodities.station_sell_price > 0
+      AND station_commodities.stock > 0
       AND ${buildLandingPadPredicate("stations", options.padSize)}
       AND ${buildFleetCarrierPredicate("stations", options.includeFleetCarriers)}
       AND ${buildPlanetaryPortPredicate("stations", options.includePlanetary)}
@@ -172,6 +173,7 @@ export function routePlannerTradeRouteQuery(options: {
         AND stations.has_market = true
         AND station_commodities.commodity_id = $2
         AND station_commodities.station_sell_price > 0
+        AND station_commodities.stock > 0
         AND ${buildLandingPadPredicate("stations", options.padSize)}
         AND ${buildFleetCarrierPredicate("stations", options.includeFleetCarriers)}
         AND ${buildPlanetaryPortPredicate("stations", options.includePlanetary)}
@@ -260,6 +262,7 @@ export function routePlannerBestTradeRouteQuery(options: {
       WHERE stations.system_id = $1::bigint
         AND stations.has_market = true
         AND station_commodities.station_sell_price > 0
+        AND station_commodities.stock > 0
         AND ${buildLandingPadPredicate("stations", options.padSize)}
         AND ${buildFleetCarrierPredicate("stations", options.includeFleetCarriers)}
         AND ${buildPlanetaryPortPredicate("stations", options.includePlanetary)}
@@ -451,6 +454,7 @@ export function routePlannerReturnHaulQuery(options: {
       WHERE stations.system_id = $1::bigint
         AND stations.has_market = true
         AND station_commodities.station_sell_price > 0
+        AND station_commodities.stock > 0
         AND ${buildLandingPadPredicate("stations", options.padSize)}
         AND ${buildFleetCarrierPredicate("stations", options.includeFleetCarriers)}
         AND ${buildPlanetaryPortPredicate("stations", options.includePlanetary)}
