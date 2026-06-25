@@ -776,21 +776,6 @@
     }
   }
 
-  function setSelectedSystem(system) {
-    const selected = select("[data-route-selected]");
-
-    if (!selected) {
-      return;
-    }
-
-    if (!system) {
-      selected.textContent = "No system selected.";
-      return;
-    }
-
-    selected.textContent = system.name + " | " + formatNumber(system.distance) + " ly from reference";
-  }
-
   function setReferenceSystem(system) {
     state.referenceSystem = system;
 
@@ -829,13 +814,16 @@
 
     if (!system || !event || !canvas) {
       hover.hidden = true;
-      hover.textContent = "";
+      hover.replaceChildren();
       return;
     }
 
     const rect = canvas.getBoundingClientRect();
+    const icon = createElement("span", { className: "route-hover-icon" });
+    const name = createElement("span", { className: "route-hover-name" }, system.name);
+
     hover.hidden = false;
-    hover.textContent = system.name;
+    hover.replaceChildren(icon, name);
     hover.style.left = Math.round(event.clientX - rect.left) + "px";
     hover.style.top = Math.round(event.clientY - rect.top) + "px";
   }
@@ -999,7 +987,6 @@
     const result = await response.json();
     state.systems = Array.isArray(result.systems) ? result.systems : [];
     renderSystems(origin);
-    setSelectedSystem(undefined);
     setStatus("Showing " + formatNumber(state.systems.length) + " nearest systems.");
   }
 
@@ -1054,7 +1041,6 @@
     const system = readSystemAt(event, canvas);
 
     if (system) {
-      setSelectedSystem(system);
       activateTab("market-browser");
       window.dispatchEvent(new CustomEvent("petdb:system-selected", {
         detail: {

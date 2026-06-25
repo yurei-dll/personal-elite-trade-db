@@ -319,7 +319,6 @@ function renderGalaxyMapSection(): string {
             <p class="route-reference" data-route-reference>Reference: galactic origin</p>
             <button type="button" class="secondary" data-route-load disabled>Load nearest systems</button>
             <p class="muted" data-route-status>3D map disabled. No systems loaded.</p>
-            <p class="route-selected" data-route-selected>No system selected.</p>
           </aside>
           <div class="route-map-frame">
             <div class="route-view-banner" data-route-view-banner hidden>
