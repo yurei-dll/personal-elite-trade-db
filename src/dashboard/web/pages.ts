@@ -61,7 +61,8 @@ export function renderDashboardPage(options: {
       </header>
       <nav class="tabs" aria-label="Dashboard sections">
         <button class="tab active" type="button" data-dashboard-tab="dashboard" aria-selected="true">Dashboard</button>
-        <button class="tab" type="button" data-dashboard-tab="route-planner" aria-selected="false">Route Planner</button>
+        <button class="tab" type="button" data-dashboard-tab="route-planner" aria-selected="false">Route planner</button>
+        <button class="tab" type="button" data-dashboard-tab="galaxy-map" aria-selected="false">Galaxy map</button>
         <button class="tab" type="button" data-dashboard-tab="market-browser" aria-selected="false">System Browser</button>
         <button class="tab" type="button" data-dashboard-tab="station-browser" aria-selected="false">Station Browser</button>
       </nav>
@@ -74,6 +75,7 @@ export function renderDashboardPage(options: {
           ${renderAdminSection(options.session, options.adminMessage)}
         </section>
         ${renderRoutePlannerSection()}
+        ${renderGalaxyMapSection()}
         ${renderMarketBrowserSection()}
         ${renderStationBrowserSection()}
       </main>
@@ -169,11 +171,79 @@ function renderInboundMessagesSection(): string {
 function renderRoutePlannerSection(): string {
   return `
     <section class="route-planner" data-tab-panel="route-planner" aria-labelledby="route-planner-tab-title" hidden>
-      <div class="section route-shell">
+      <div class="section planner-shell">
         <div class="section-header">
           <div>
             <p class="eyebrow">Route Planner</p>
-            <h2 id="route-planner-tab-title">Nearby Systems Map</h2>
+            <h2 id="route-planner-tab-title">Jump Timeline</h2>
+          </div>
+          <span class="pill" data-planner-status>Choose pickup</span>
+        </div>
+        <div class="planner-layout">
+          <div class="planner-timeline" data-planner-timeline>
+            <div class="timeline-node endpoint">
+              <span class="timeline-dot"></span>
+              <strong>Pickup</strong>
+              <small data-planner-pickup-label>Select system</small>
+              <button type="button" class="timeline-copy" data-planner-copy-source disabled>Copy market</button>
+            </div>
+            <div class="timeline-track" data-planner-track>
+              <p class="muted">Select a pickup system and commodity, then build a route.</p>
+            </div>
+            <div class="timeline-node endpoint">
+              <span class="timeline-dot"></span>
+              <strong>Buyer</strong>
+              <small data-planner-buyer-label>Best match</small>
+              <button type="button" class="timeline-copy" data-planner-copy-destination disabled>Copy market</button>
+            </div>
+          </div>
+          <aside class="planner-controls">
+            <div class="planner-endpoints">
+              <label>
+                <span>Pickup location</span>
+                <input type="search" list="planner-pickup-results" placeholder="Search systems..." autocomplete="off" data-planner-pickup-search>
+                <datalist id="planner-pickup-results" data-planner-pickup-results></datalist>
+              </label>
+              <label>
+                <span>Commodity</span>
+                <select data-planner-commodity disabled>
+                  <option value="">Choose pickup first</option>
+                </select>
+              </label>
+            </div>
+            <div class="planner-settings">
+              <label>
+                <span>Max jump range</span>
+                <input type="number" min="1" max="500" step="0.1" value="30" data-planner-max-range>
+              </label>
+              <label>
+                <span>Max jumps</span>
+                <input type="number" min="1" max="100" step="1" value="8" data-planner-max-jumps>
+              </label>
+              <label>
+                <span>Min landing pad size</span>
+                <select data-planner-pad-size>
+                  <option value="M">Medium</option>
+                  <option value="L" selected>Large</option>
+                </select>
+              </label>
+            </div>
+            <button type="button" data-planner-build>Build route</button>
+          </aside>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderGalaxyMapSection(): string {
+  return `
+    <section class="galaxy-map" data-tab-panel="galaxy-map" aria-labelledby="galaxy-map-tab-title" hidden>
+      <div class="section route-shell">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Galaxy Map</p>
+            <h2 id="galaxy-map-tab-title">Nearby Systems Map</h2>
           </div>
           <span class="pill">3D disabled by default</span>
         </div>
@@ -532,6 +602,9 @@ function renderDocument(options: {
       .route-planner {
         padding: 1rem 2rem 2rem;
       }
+      .galaxy-map {
+        padding: 1rem 2rem 2rem;
+      }
       .market-browser {
         padding: 1rem 2rem 2rem;
       }
@@ -620,6 +693,166 @@ function renderDocument(options: {
         height: 12rem;
         width: 100%;
       }
+      .planner-shell {
+        min-height: 32rem;
+      }
+      .planner-layout {
+        display: grid;
+        gap: 1rem;
+        grid-template-columns: 1fr;
+      }
+      .planner-controls,
+      .planner-endpoints,
+      .planner-settings {
+        display: grid;
+        gap: 1rem;
+        align-content: start;
+      }
+      .planner-controls {
+        grid-template-columns: minmax(18rem, 1.2fr) minmax(18rem, 1fr) auto;
+        align-items: end;
+      }
+      .planner-endpoints {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .planner-settings {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+      .planner-timeline {
+        align-items: center;
+        background: #090c12;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        display: grid;
+        gap: 1rem;
+        grid-template-columns: minmax(7rem, 10rem) minmax(0, 1fr) minmax(7rem, 10rem);
+        min-height: 12rem;
+        padding: 0.9rem;
+      }
+      .timeline-track {
+        align-items: center;
+        display: flex;
+        gap: 0;
+        min-height: 5.5rem;
+        position: relative;
+      }
+      .timeline-track::before {
+        background: var(--line);
+        content: "";
+        height: 2px;
+        left: 0;
+        position: absolute;
+        right: 0;
+        top: 50%;
+      }
+      .timeline-node {
+        align-items: center;
+        display: grid;
+        gap: 0.35rem;
+        justify-items: center;
+        min-width: 0;
+        position: relative;
+        text-align: center;
+      }
+      .timeline-node.endpoint {
+        background: var(--panel-strong);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        min-height: 6.5rem;
+        padding: 0.65rem;
+      }
+      .timeline-node.endpoint strong {
+        left: 0.65rem;
+        position: absolute;
+        right: 0.65rem;
+        top: 0.55rem;
+      }
+      .timeline-node.endpoint small {
+        left: 0.65rem;
+        position: absolute;
+        right: 0.65rem;
+        top: 1.75rem;
+      }
+      .timeline-node.endpoint .timeline-dot {
+        left: 50%;
+        position: absolute;
+        top: 50%;
+        transform: translate(-50%, -50%);
+      }
+      .timeline-node strong { font-size: 0.9rem; }
+      .timeline-node small {
+        color: var(--muted);
+        font-size: 0.78rem;
+        overflow-wrap: anywhere;
+      }
+      .timeline-copy {
+        background: #090c12;
+        bottom: 0.55rem;
+        color: var(--text);
+        font-size: 0.72rem;
+        left: 50%;
+        padding: 0.38rem 0.5rem;
+        position: absolute;
+        transform: translateX(-50%);
+        white-space: nowrap;
+      }
+      .timeline-hop {
+        background: transparent;
+        border: 0;
+        color: var(--text);
+        display: block;
+        flex: 1 1 0;
+        min-width: 2.75rem;
+        padding: 0;
+        position: relative;
+        height: 5.5rem;
+        z-index: 1;
+      }
+      .timeline-hop .timeline-dot {
+        left: 50%;
+        position: absolute;
+        top: 50%;
+        transform: translate(-50%, -50%);
+      }
+      .timeline-dot {
+        background: var(--accent);
+        border: 3px solid #090c12;
+        border-radius: 999px;
+        box-shadow: 0 0 0 1px var(--accent), 0 0 1.25rem rgba(72, 215, 255, 0.36);
+        display: block;
+        height: 0.75rem;
+        width: 0.75rem;
+      }
+      .timeline-hop .timeline-name {
+        background: rgba(17, 20, 28, 0.96);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        font-size: 0.78rem;
+        left: 50%;
+        color: var(--text);
+        max-width: 10rem;
+        opacity: 0;
+        overflow-wrap: anywhere;
+        padding: 0.35rem 0.45rem;
+        position: absolute;
+        top: calc(50% + 0.8rem);
+        transform: translate(-50%, 0.25rem);
+        transition: opacity 140ms ease, transform 140ms ease;
+      }
+      .timeline-hop.expanded .timeline-name,
+      .timeline-hop:focus-visible .timeline-name {
+        opacity: 1;
+        transform: translate(-50%, 0);
+      }
+      .timeline-meta {
+        color: var(--muted);
+        font-size: 0.7rem;
+        left: 50%;
+        position: absolute;
+        top: calc(50% - 1.6rem);
+        transform: translateX(-50%);
+        white-space: nowrap;
+      }
       .route-shell {
         min-height: 36rem;
       }
@@ -707,6 +940,15 @@ function renderDocument(options: {
       .market-summary strong {
         display: block;
         font-size: 1.1rem;
+      }
+      .summary-actions {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 0.75rem;
+      }
+      .summary-actions button {
+        font-size: 0.82rem;
+        padding: 0.55rem 0.7rem;
       }
       .market-summary dl {
         display: grid;
@@ -848,6 +1090,9 @@ function renderDocument(options: {
         .route-planner {
           padding: 1rem;
         }
+        .galaxy-map {
+          padding: 1rem;
+        }
         .market-browser {
           padding: 1rem;
         }
@@ -857,7 +1102,37 @@ function renderDocument(options: {
         .route-layout {
           grid-template-columns: 1fr;
         }
-        .market-search-row,
+        .planner-layout,
+        .planner-timeline,
+        .planner-controls,
+        .planner-endpoints {
+          grid-template-columns: 1fr;
+        }
+        .planner-settings {
+          grid-template-columns: 1fr;
+        }
+        .timeline-track {
+          align-items: stretch;
+          flex-direction: column;
+          gap: 0.9rem;
+        }
+        .timeline-track::before {
+          bottom: 0;
+          height: auto;
+          left: 50%;
+          right: auto;
+          top: 0;
+          width: 2px;
+        }
+        .timeline-hop {
+          min-height: 4rem;
+          width: 100%;
+        }
+        .timeline-hop .timeline-dot {
+          left: 50%;
+          top: 50%;
+        }
+      .market-search-row,
         .market-layout,
         .market-summary dl {
           grid-template-columns: 1fr;

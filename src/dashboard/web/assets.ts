@@ -272,9 +272,433 @@ export const ROUTE_PLANNER_SCRIPT = `
     three: undefined,
   };
   let threePromise;
+  const plannerState = {
+    commodities: [],
+    pickup: undefined,
+    pickupResults: [],
+    pickupToken: 0,
+    route: undefined,
+  };
 
   function select(selector) {
     return document.querySelector(selector);
+  }
+
+  function readPlannerNumber(selector, fallback) {
+    const input = select(selector);
+    const value = input instanceof HTMLInputElement ? Number.parseFloat(input.value) : Number.NaN;
+
+    return Number.isFinite(value) ? value : fallback;
+  }
+
+  function readPlannerInteger(selector, fallback) {
+    const input = select(selector);
+    const value = input instanceof HTMLInputElement ? Number.parseInt(input.value, 10) : Number.NaN;
+
+    return Number.isFinite(value) ? value : fallback;
+  }
+
+  function setPlannerStatus(message) {
+    const status = select("[data-planner-status]");
+
+    if (status) {
+      status.textContent = message;
+    }
+  }
+
+  function setPlannerEndpoint(kind, system) {
+    plannerState.pickup = system;
+
+    const label = select("[data-planner-pickup-label]");
+
+    if (label) {
+      label.textContent = system ? system.name : "Select system";
+    }
+  }
+
+  async function useSystemInPlanner(system) {
+    if (!system?.id) {
+      return;
+    }
+
+    const hydratedSystem = typeof system.x === "number" && typeof system.y === "number" && typeof system.z === "number"
+      ? system
+      : await loadPlannerSystem(system.id, system.name);
+    const input = select("[data-planner-pickup-search]");
+
+    if (input instanceof HTMLInputElement) {
+      input.value = hydratedSystem.name || "";
+    }
+
+    setPlannerEndpoint("pickup", {
+      id: hydratedSystem.id,
+      name: hydratedSystem.name || "Unknown system",
+      x: Number(hydratedSystem.x) || 0,
+      y: Number(hydratedSystem.y) || 0,
+      z: Number(hydratedSystem.z) || 0,
+    });
+    plannerState.route = undefined;
+    updatePlannerCopyButtons(undefined);
+    setPlannerBuyerLabel("Best match");
+    activateTab("route-planner");
+    setPlannerStatus("Loading commodities");
+    loadPlannerCommodities().catch((error) => setPlannerStatus(error instanceof Error ? error.message : String(error)));
+  }
+
+  async function loadPlannerSystem(systemId, fallbackName) {
+    const response = await window.fetch("/dashboard/data/route-planner/systems/" + encodeURIComponent(systemId), {
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      return {
+        id: systemId,
+        name: fallbackName || "Unknown system",
+        x: 0,
+        y: 0,
+        z: 0,
+      };
+    }
+
+    const result = await response.json();
+    return result.system || {
+      id: systemId,
+      name: fallbackName || "Unknown system",
+      x: 0,
+      y: 0,
+      z: 0,
+    };
+  }
+
+  function setPlannerBuyerLabel(message) {
+    const label = select("[data-planner-buyer-label]");
+
+    if (label) {
+      label.textContent = message;
+    }
+  }
+
+  function updatePlannerCopyButtons(route) {
+    const sourceButton = select("[data-planner-copy-source]");
+    const destinationButton = select("[data-planner-copy-destination]");
+
+    if (sourceButton instanceof HTMLButtonElement) {
+      sourceButton.disabled = !route;
+      sourceButton.textContent = "Copy market";
+    }
+
+    if (destinationButton instanceof HTMLButtonElement) {
+      destinationButton.disabled = !route;
+      destinationButton.textContent = "Copy market";
+    }
+  }
+
+  async function searchPlannerSystems(query) {
+    const results = select("[data-planner-pickup-results]");
+    const token = plannerState.pickupToken + 1;
+
+    plannerState.pickupToken = token;
+
+    if (!(results instanceof HTMLDataListElement)) {
+      return;
+    }
+
+    if (!query.trim()) {
+      plannerState.pickupResults = [];
+      results.replaceChildren();
+      setPlannerEndpoint("pickup", undefined);
+      plannerState.route = undefined;
+      setPlannerBuyerLabel("Best match");
+      updatePlannerCopyButtons(undefined);
+      resetPlannerCommodities("Choose pickup first");
+      return;
+    }
+
+    const params = new URLSearchParams({ q: query.trim() });
+    const response = await window.fetch("/dashboard/data/route-planner/system-search?" + params.toString(), {
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (token !== plannerState.pickupToken || !response.ok) {
+      return;
+    }
+
+    const result = await response.json();
+    plannerState.pickupResults = Array.isArray(result.systems) ? result.systems : [];
+    results.replaceChildren(...plannerState.pickupResults.map((system) => {
+      const option = document.createElement("option");
+      option.value = system.name;
+      option.label = system.name + " (" + formatNumber(system.x) + ", " + formatNumber(system.y) + ", " + formatNumber(system.z) + ")";
+      return option;
+    }));
+  }
+
+  function applyPlannerSearch() {
+    const input = select("[data-planner-pickup-search]");
+
+    if (!(input instanceof HTMLInputElement)) {
+      return;
+    }
+
+    const query = input.value.trim().toLowerCase();
+    const match = plannerState.pickupResults.find((system) => system.name.toLowerCase() === query)
+      ?? plannerState.pickupResults[0];
+
+    if (!match) {
+      setPlannerStatus("Search a pickup system first");
+      return;
+    }
+
+    input.value = match.name;
+    setPlannerEndpoint("pickup", match);
+    setPlannerBuyerLabel("Best match");
+    plannerState.route = undefined;
+    updatePlannerCopyButtons(undefined);
+    setPlannerStatus("Loading commodities");
+    loadPlannerCommodities().catch((error) => setPlannerStatus(error instanceof Error ? error.message : String(error)));
+  }
+
+  function resetPlannerCommodities(message) {
+    const commoditySelect = select("[data-planner-commodity]");
+
+    plannerState.commodities = [];
+
+    if (commoditySelect instanceof HTMLSelectElement) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = message;
+      commoditySelect.replaceChildren(option);
+      commoditySelect.disabled = true;
+    }
+  }
+
+  async function loadPlannerCommodities() {
+    const commoditySelect = select("[data-planner-commodity]");
+
+    if (!(commoditySelect instanceof HTMLSelectElement) || !plannerState.pickup) {
+      return;
+    }
+
+    const params = new URLSearchParams({
+      padSize: readPlannerPadSize(),
+      systemId: String(plannerState.pickup.id),
+    });
+    const response = await window.fetch("/dashboard/data/route-planner/commodities?" + params.toString(), {
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      resetPlannerCommodities("Could not load commodities");
+      setPlannerStatus("No commodities");
+      return;
+    }
+
+    const result = await response.json();
+    plannerState.commodities = Array.isArray(result.commodities) ? result.commodities : [];
+
+    if (plannerState.commodities.length === 0) {
+      resetPlannerCommodities("No sellable commodities");
+      setPlannerStatus("No commodities");
+      return;
+    }
+
+    commoditySelect.disabled = false;
+    commoditySelect.replaceChildren(...plannerState.commodities.map((commodity) => {
+      const option = document.createElement("option");
+      const price = typeof commodity.stationSellPrice === "number" ? " | " + formatCredits(commodity.stationSellPrice) : "";
+      option.value = commodity.id;
+      option.textContent = commodity.name + " | " + commodity.sourceStationName + price;
+      return option;
+    }));
+    setPlannerStatus(formatNumber(plannerState.commodities.length) + " commodities");
+    buildPlannerRoute().catch((error) => setPlannerStatus(error instanceof Error ? error.message : String(error)));
+  }
+
+  async function buildPlannerRoute() {
+    const track = select("[data-planner-track]");
+    const commoditySelect = select("[data-planner-commodity]");
+
+    if (!track) {
+      return;
+    }
+
+    if (!plannerState.pickup) {
+      track.replaceChildren(renderPlannerMessage("Select a pickup system and commodity, then build a route."));
+      plannerState.route = undefined;
+      updatePlannerCopyButtons(undefined);
+      setPlannerStatus("Choose pickup");
+      return;
+    }
+
+    const maxRange = Math.max(1, readPlannerNumber("[data-planner-max-range]", 30));
+    const maxJumps = Math.max(1, readPlannerInteger("[data-planner-max-jumps]", 8));
+    const commodityId = commoditySelect instanceof HTMLSelectElement ? commoditySelect.value : "";
+
+    if (!commodityId) {
+      track.replaceChildren(renderPlannerMessage("Choose a commodity sold at the pickup system."));
+      plannerState.route = undefined;
+      updatePlannerCopyButtons(undefined);
+      setPlannerStatus("Choose commodity");
+      return;
+    }
+
+    const params = new URLSearchParams({
+      commodityId,
+      maxJumps: String(maxJumps),
+      maxRange: String(maxRange),
+      originSystemId: String(plannerState.pickup.id),
+      padSize: readPlannerPadSize(),
+    });
+
+    setPlannerStatus("Finding buyer");
+    const response = await window.fetch("/dashboard/data/route-planner/trade-route?" + params.toString(), {
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      track.replaceChildren(renderPlannerMessage("Could not build a trade route for those settings."));
+      plannerState.route = undefined;
+      updatePlannerCopyButtons(undefined);
+      setPlannerStatus("Route failed");
+      return;
+    }
+
+    const result = await response.json();
+
+    if (!result.route) {
+      track.replaceChildren(renderPlannerMessage("No buyer found inside " + formatNumber(maxRange * maxJumps) + " ly with " + formatPadSize(readPlannerPadSize()) + " pads."));
+      plannerState.route = undefined;
+      updatePlannerCopyButtons(undefined);
+      setPlannerBuyerLabel("No match");
+      setPlannerStatus("No route");
+      return;
+    }
+
+    renderPlannerRoute(result.route);
+  }
+
+  function renderPlannerRoute(route) {
+    const track = select("[data-planner-track]");
+
+    if (!track || !plannerState.pickup) {
+      return;
+    }
+
+    const jumps = Math.max(1, Number(route.jumps) || 1);
+    const waypoints = Array.isArray(route.waypoints) ? route.waypoints : [];
+    const hops = waypoints.map((waypoint) => ({
+      meta: formatNumber(waypoint.distance) + " ly off line",
+      name: waypoint.name,
+      x: waypoint.x,
+      y: waypoint.y,
+      z: waypoint.z,
+    }));
+
+    if (hops.length === 0) {
+      track.replaceChildren(renderPlannerHop({
+        meta: formatNumber(route.distance) + " ly",
+        name: route.destination.systemName,
+        x: route.destination.x,
+        y: route.destination.y,
+        z: route.destination.z,
+      }));
+    } else {
+      track.replaceChildren(...hops.map((hop) => renderPlannerHop(hop)));
+    }
+
+    plannerState.route = route;
+    updatePlannerCopyButtons(route);
+    setPlannerBuyerLabel(route.destination.systemName);
+    setPlannerStatus(formatNumber(jumps) + " jumps | +" + formatCredits(route.profit ?? 0) + " | " + route.destination.stationName);
+  }
+
+  function renderPlannerMessage(message) {
+    const element = document.createElement("p");
+    element.className = "muted";
+    element.textContent = message;
+    return element;
+  }
+
+  function renderPlannerHop(hop) {
+    const button = document.createElement("button");
+    const dot = document.createElement("span");
+    const name = document.createElement("span");
+    const meta = document.createElement("span");
+
+    button.type = "button";
+    button.className = "timeline-hop";
+    dot.className = "timeline-dot";
+    name.className = "timeline-name";
+    meta.className = "timeline-meta";
+    name.textContent = hop.name;
+    meta.textContent = hop.meta || (formatNumber(hop.x) + ", " + formatNumber(hop.y) + ", " + formatNumber(hop.z));
+    button.append(dot, name, meta);
+    button.addEventListener("click", () => {
+      document.querySelectorAll(".timeline-hop.expanded").forEach((node) => {
+        if (node !== button) {
+          node.classList.remove("expanded");
+        }
+      });
+      button.classList.toggle("expanded");
+    });
+
+    return button;
+  }
+
+  function formatPadSize(value) {
+    return value === "M" ? "medium" : "large";
+  }
+
+  function readPlannerPadSize() {
+    const padSelect = select("[data-planner-pad-size]");
+
+    return padSelect instanceof HTMLSelectElement && padSelect.value === "M" ? "M" : "L";
+  }
+
+  async function copyPlannerMarket(kind) {
+    const route = plannerState.route;
+
+    if (!route || !plannerState.pickup) {
+      return;
+    }
+
+    const button = select(kind === "source" ? "[data-planner-copy-source]" : "[data-planner-copy-destination]");
+    const market = kind === "source"
+      ? route.source.stationName + ", " + plannerState.pickup.name
+      : route.destination.stationName + ", " + route.destination.systemName;
+
+    await writeClipboardText(market);
+
+    if (button instanceof HTMLButtonElement) {
+      button.textContent = "Copied";
+      window.setTimeout(() => {
+        button.textContent = "Copy market";
+      }, 1200);
+    }
+  }
+
+  async function writeClipboardText(value) {
+    if (window.navigator.clipboard?.writeText) {
+      await window.navigator.clipboard.writeText(value);
+      return;
+    }
+
+    const input = document.createElement("input");
+    input.value = value;
+    input.style.left = "-9999px";
+    input.style.position = "fixed";
+    document.body.append(input);
+    input.select();
+    document.execCommand("copy");
+    input.remove();
   }
 
   function readNumberInput(selector, fallback) {
@@ -695,6 +1119,12 @@ export const ROUTE_PLANNER_SCRIPT = `
     }).format(value);
   }
 
+  function formatCredits(value) {
+    return new Intl.NumberFormat("en-US", {
+      maximumFractionDigits: 0,
+    }).format(value) + " cr";
+  }
+
   window.addEventListener("DOMContentLoaded", () => {
     document.querySelectorAll("[data-dashboard-tab]").forEach((tab) => {
       tab.addEventListener("click", () => activateTab(tab.getAttribute("data-dashboard-tab") || "dashboard"));
@@ -704,7 +1134,16 @@ export const ROUTE_PLANNER_SCRIPT = `
     const loadButton = select("[data-route-load]");
     const referenceInput = select("[data-route-reference-search]");
     const setReferenceButton = select("[data-route-set-reference]");
+    const plannerPickupInput = select("[data-planner-pickup-search]");
+    const plannerCommoditySelect = select("[data-planner-commodity]");
+    const plannerBuildButton = select("[data-planner-build]");
+    const plannerMaxRangeInput = select("[data-planner-max-range]");
+    const plannerMaxJumpsInput = select("[data-planner-max-jumps]");
+    const plannerPadSizeSelect = select("[data-planner-pad-size]");
+    const plannerCopySourceButton = select("[data-planner-copy-source]");
+    const plannerCopyDestinationButton = select("[data-planner-copy-destination]");
     let referenceSearchTimer = 0;
+    let plannerPickupTimer = 0;
 
     if (enableButton instanceof HTMLButtonElement) {
       enableButton.addEventListener("click", () => {
@@ -731,6 +1170,57 @@ export const ROUTE_PLANNER_SCRIPT = `
     if (setReferenceButton instanceof HTMLButtonElement) {
       setReferenceButton.addEventListener("click", applyReferenceSearch);
     }
+
+    if (plannerPickupInput instanceof HTMLInputElement) {
+      plannerPickupInput.addEventListener("input", () => {
+        window.clearTimeout(plannerPickupTimer);
+        plannerPickupTimer = window.setTimeout(() => {
+          searchPlannerSystems(plannerPickupInput.value).catch((error) => setPlannerStatus(error instanceof Error ? error.message : String(error)));
+        }, 180);
+      });
+      plannerPickupInput.addEventListener("change", applyPlannerSearch);
+    }
+
+    if (plannerCommoditySelect instanceof HTMLSelectElement) {
+      plannerCommoditySelect.addEventListener("change", () => {
+        buildPlannerRoute().catch((error) => setPlannerStatus(error instanceof Error ? error.message : String(error)));
+      });
+    }
+
+    if (plannerBuildButton instanceof HTMLButtonElement) {
+      plannerBuildButton.addEventListener("click", () => {
+        buildPlannerRoute().catch((error) => setPlannerStatus(error instanceof Error ? error.message : String(error)));
+      });
+    }
+
+    [plannerMaxRangeInput, plannerMaxJumpsInput, plannerPadSizeSelect].forEach((control) => {
+      if (control) {
+        control.addEventListener("change", () => {
+          if (control === plannerPadSizeSelect && plannerState.pickup) {
+            loadPlannerCommodities().catch((error) => setPlannerStatus(error instanceof Error ? error.message : String(error)));
+            return;
+          }
+
+          buildPlannerRoute().catch((error) => setPlannerStatus(error instanceof Error ? error.message : String(error)));
+        });
+      }
+    });
+
+    if (plannerCopySourceButton instanceof HTMLButtonElement) {
+      plannerCopySourceButton.addEventListener("click", () => {
+        copyPlannerMarket("source").catch((error) => setPlannerStatus(error instanceof Error ? error.message : String(error)));
+      });
+    }
+
+    if (plannerCopyDestinationButton instanceof HTMLButtonElement) {
+      plannerCopyDestinationButton.addEventListener("click", () => {
+        copyPlannerMarket("destination").catch((error) => setPlannerStatus(error instanceof Error ? error.message : String(error)));
+      });
+    }
+
+    window.addEventListener("petdb:use-system-in-planner", (event) => {
+      useSystemInPlanner(event.detail).catch((error) => setPlannerStatus(error instanceof Error ? error.message : String(error)));
+    });
   });
 })();
 `;
@@ -864,6 +1354,7 @@ export const MARKET_BROWSER_SCRIPT = `
 
     summary.replaceChildren(
       createElement("strong", {}, system.name || "Unknown system"),
+      createSummaryActions(system),
       createElement("dl", {}, [
         createSummaryItem("Coordinates", [system.x, system.y, system.z].map(formatNumber).join(", ")),
         createSummaryItem("Markets", formatNumber(marketCount)),
@@ -871,6 +1362,20 @@ export const MARKET_BROWSER_SCRIPT = `
         createSummaryItem("Sold", formatNumber(soldCount)),
       ]),
     );
+  }
+
+  function createSummaryActions(system) {
+    const actions = createElement("div", { className: "summary-actions" });
+    const button = createElement("button", { className: "secondary" }, "Use in planner");
+
+    button.type = "button";
+    button.addEventListener("click", () => {
+      window.dispatchEvent(new CustomEvent("petdb:use-system-in-planner", {
+        detail: system,
+      }));
+    });
+    actions.append(button);
+    return actions;
   }
 
   function createSummaryItem(label, value) {
@@ -1178,6 +1683,7 @@ export const STATION_BROWSER_SCRIPT = `
 
     summary.replaceChildren(
       createElement("strong", {}, station.name || "Unknown station"),
+      createSummaryActions(station),
       createElement("dl", {}, [
         createSummaryItem("System", station.systemName || "unknown"),
         createSummaryItem("Type", station.type || "unknown"),
@@ -1188,6 +1694,23 @@ export const STATION_BROWSER_SCRIPT = `
         createSummaryItem("Updated", formatDate(station.updatedAt)),
       ]),
     );
+  }
+
+  function createSummaryActions(station) {
+    const actions = createElement("div", { className: "summary-actions" });
+    const button = createElement("button", { className: "secondary" }, "Use in planner");
+
+    button.type = "button";
+    button.addEventListener("click", () => {
+      window.dispatchEvent(new CustomEvent("petdb:use-system-in-planner", {
+        detail: {
+          id: station.systemId,
+          name: station.systemName,
+        },
+      }));
+    });
+    actions.append(button);
+    return actions;
   }
 
   function createSummaryItem(label, value) {

@@ -88,6 +88,46 @@ interface RoutePlannerSearchSystemRow {
   readonly z: string | number;
 }
 
+interface RoutePlannerCommodityRow {
+  readonly category: string | null;
+  readonly id: string;
+  readonly name: string;
+  readonly source_station_id: string | number;
+  readonly source_station_name: string;
+  readonly station_sell_price: string | number | null;
+  readonly stock: string | number | null;
+}
+
+interface RoutePlannerTradeRouteRow {
+  readonly commodity_category: string | null;
+  readonly commodity_id: string;
+  readonly commodity_name: string;
+  readonly destination_station_id: string | number;
+  readonly destination_station_name: string;
+  readonly destination_system_id: string | number;
+  readonly destination_system_name: string;
+  readonly destination_x: string | number;
+  readonly destination_y: string | number;
+  readonly destination_z: string | number;
+  readonly distance: string | number;
+  readonly profit: string | number | null;
+  readonly source_station_id: string | number;
+  readonly source_station_name: string;
+  readonly station_buy_price: string | number | null;
+  readonly station_sell_price: string | number | null;
+  readonly stock: string | number | null;
+}
+
+interface RoutePlannerWaypointRow {
+  readonly distance: string | number;
+  readonly id: string | number;
+  readonly jump_index: string | number;
+  readonly name: string;
+  readonly x: string | number;
+  readonly y: string | number;
+  readonly z: string | number;
+}
+
 interface MarketBrowserSystemRow {
   readonly id: string | number;
   readonly name: string;
@@ -396,6 +436,259 @@ export async function startDashboardServer(
         y: readOptionalNumber(row.y) ?? 0,
         z: readOptionalNumber(row.z) ?? 0,
       })),
+    });
+  });
+
+  app.get("/dashboard/data/route-planner/systems/:systemId", async (context) => {
+    const session = readSession(context.req.header("Cookie"), sessionSecret);
+
+    if (!session) {
+      return context.json({ error: "Unauthorized" }, 401);
+    }
+
+    const systemId = readIdParam(context.req.param("systemId"));
+
+    if (!systemId) {
+      return context.json({ error: "Invalid system id" }, 400);
+    }
+
+    const result = await options.database.query<RoutePlannerSearchSystemRow>(
+      `
+        SELECT
+          id::text,
+          name,
+          x,
+          y,
+          z
+        FROM systems
+        WHERE id = $1::bigint
+      `,
+      [systemId],
+    );
+    const row = result.rows[0];
+
+    if (!row) {
+      return context.json({ error: "System not found" }, 404);
+    }
+
+    return context.json({
+      system: {
+        id: String(row.id),
+        name: row.name,
+        x: readOptionalNumber(row.x) ?? 0,
+        y: readOptionalNumber(row.y) ?? 0,
+        z: readOptionalNumber(row.z) ?? 0,
+      },
+    });
+  });
+
+  app.get("/dashboard/data/route-planner/commodities", async (context) => {
+    const session = readSession(context.req.header("Cookie"), sessionSecret);
+
+    if (!session) {
+      return context.json({ error: "Unauthorized" }, 401);
+    }
+
+    const systemId = readIdParam(context.req.query("systemId"));
+    const padSize = readLandingPadSize(context.req.query("padSize"));
+
+    if (!systemId) {
+      return context.json({ error: "Invalid system id" }, 400);
+    }
+
+    const result = await options.database.query<RoutePlannerCommodityRow>(
+      `
+        SELECT DISTINCT ON (commodities.id)
+          commodities.id,
+          commodities.name,
+          commodities.category,
+          stations.id::text AS source_station_id,
+          stations.name AS source_station_name,
+          station_commodities.station_sell_price,
+          station_commodities.stock
+        FROM stations
+        JOIN station_commodities
+          ON station_commodities.station_id = stations.id
+        JOIN commodities
+          ON commodities.id = station_commodities.commodity_id
+        WHERE stations.system_id = $1::bigint
+          AND stations.has_market = true
+          AND station_commodities.station_sell_price > 0
+          AND ${buildLandingPadPredicate("stations", padSize)}
+        ORDER BY
+          commodities.id,
+          station_commodities.station_sell_price ASC NULLS LAST,
+          stations.distance_to_arrival ASC NULLS LAST,
+          stations.name ASC
+      `,
+      [systemId],
+    );
+
+    return context.json({
+      commodities: result.rows.map((row) => ({
+        category: row.category,
+        id: row.id,
+        name: row.name,
+        sourceStationId: String(row.source_station_id),
+        sourceStationName: row.source_station_name,
+        stationSellPrice: readOptionalNumber(row.station_sell_price),
+        stock: readOptionalNumber(row.stock),
+      })),
+      padSize,
+      systemId,
+    });
+  });
+
+  app.get("/dashboard/data/route-planner/trade-route", async (context) => {
+    const session = readSession(context.req.header("Cookie"), sessionSecret);
+
+    if (!session) {
+      return context.json({ error: "Unauthorized" }, 401);
+    }
+
+    const originSystemId = readIdParam(context.req.query("originSystemId"));
+    const commodityId = readCommodityId(context.req.query("commodityId"));
+    const maxRange = Math.max(1, Math.min(readQueryNumber(context.req.query("maxRange"), 30), 500));
+    const maxJumps = Math.max(1, Math.min(readQueryInteger(context.req.query("maxJumps"), 8), 100));
+    const padSize = readLandingPadSize(context.req.query("padSize"));
+
+    if (!originSystemId || !commodityId) {
+      return context.json({ error: "Invalid route request" }, 400);
+    }
+
+    const maxDistance = maxRange * maxJumps;
+    const result = await options.database.query<RoutePlannerTradeRouteRow>(
+      `
+        WITH origin AS (
+          SELECT id, name, x, y, z
+          FROM systems
+          WHERE id = $1::bigint
+        ),
+        source_offers AS (
+          SELECT DISTINCT ON (stations.id)
+            stations.id,
+            stations.name,
+            station_commodities.station_sell_price,
+            station_commodities.stock
+          FROM stations
+          JOIN station_commodities
+            ON station_commodities.station_id = stations.id
+          WHERE stations.system_id = $1::bigint
+            AND stations.has_market = true
+            AND station_commodities.commodity_id = $2
+            AND station_commodities.station_sell_price > 0
+            AND ${buildLandingPadPredicate("stations", padSize)}
+          ORDER BY
+            stations.id,
+            station_commodities.station_sell_price ASC NULLS LAST,
+            stations.distance_to_arrival ASC NULLS LAST
+        )
+        SELECT
+          commodities.id AS commodity_id,
+          commodities.name AS commodity_name,
+          commodities.category AS commodity_category,
+          source_offers.id::text AS source_station_id,
+          source_offers.name AS source_station_name,
+          source_offers.station_sell_price,
+          source_offers.stock,
+          destination_stations.id::text AS destination_station_id,
+          destination_stations.name AS destination_station_name,
+          destination_systems.id::text AS destination_system_id,
+          destination_systems.name AS destination_system_name,
+          destination_systems.x AS destination_x,
+          destination_systems.y AS destination_y,
+          destination_systems.z AS destination_z,
+          destination_markets.station_buy_price,
+          destination_markets.station_buy_price - source_offers.station_sell_price AS profit,
+          sqrt(
+            power(destination_systems.x - origin.x, 2) +
+            power(destination_systems.y - origin.y, 2) +
+            power(destination_systems.z - origin.z, 2)
+          ) AS distance
+        FROM origin
+        JOIN source_offers
+          ON true
+        JOIN commodities
+          ON commodities.id = $2
+        JOIN station_commodities AS destination_markets
+          ON destination_markets.commodity_id = $2
+        JOIN stations AS destination_stations
+          ON destination_stations.id = destination_markets.station_id
+        JOIN systems AS destination_systems
+          ON destination_systems.id = destination_stations.system_id
+        WHERE destination_stations.has_market = true
+          AND destination_stations.system_id <> origin.id
+          AND destination_markets.station_buy_price > 0
+          AND ${buildLandingPadPredicate("destination_stations", padSize)}
+          AND sqrt(
+            power(destination_systems.x - origin.x, 2) +
+            power(destination_systems.y - origin.y, 2) +
+            power(destination_systems.z - origin.z, 2)
+          ) <= $3::double precision
+        ORDER BY
+          profit DESC NULLS LAST,
+          distance ASC,
+          destination_markets.station_buy_price DESC NULLS LAST,
+          destination_stations.distance_to_arrival ASC NULLS LAST
+        LIMIT 1
+      `,
+      [originSystemId, commodityId, maxDistance],
+    );
+    const row = result.rows[0];
+
+    if (!row) {
+      return context.json({
+        maxDistance,
+        maxJumps,
+        maxRange,
+        padSize,
+        route: null,
+      });
+    }
+
+    const distance = readOptionalNumber(row.distance) ?? 0;
+    const jumps = Math.max(1, Math.ceil(distance / maxRange));
+    const destination = {
+      stationId: String(row.destination_station_id),
+      stationName: row.destination_station_name,
+      systemId: String(row.destination_system_id),
+      systemName: row.destination_system_name,
+      x: readOptionalNumber(row.destination_x) ?? 0,
+      y: readOptionalNumber(row.destination_y) ?? 0,
+      z: readOptionalNumber(row.destination_z) ?? 0,
+    };
+    const waypoints = jumps > 1
+      ? await readRoutePlannerWaypoints(options.database, {
+          destination,
+          jumps,
+          originSystemId,
+        })
+      : [];
+
+    return context.json({
+      maxDistance,
+      maxJumps,
+      maxRange,
+      padSize,
+      route: {
+        commodity: {
+          category: row.commodity_category,
+          id: row.commodity_id,
+          name: row.commodity_name,
+        },
+        destination,
+        distance,
+        jumps,
+        profit: readOptionalNumber(row.profit),
+        source: {
+          stationId: String(row.source_station_id),
+          stationName: row.source_station_name,
+          stationSellPrice: readOptionalNumber(row.station_sell_price),
+          stock: readOptionalNumber(row.stock),
+        },
+        stationBuyPrice: readOptionalNumber(row.station_buy_price),
+        waypoints,
+      },
     });
   });
 
@@ -784,6 +1077,16 @@ function readQueryNumber(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsedValue) ? parsedValue : fallback;
 }
 
+function readQueryInteger(value: string | undefined, fallback: number): number {
+  if (!value) {
+    return fallback;
+  }
+
+  const parsedValue = Number.parseInt(value, 10);
+
+  return Number.isInteger(parsedValue) ? parsedValue : fallback;
+}
+
 function readRoutePlannerLimit(value: string | undefined): number {
   const parsedLimit = value ? Number.parseInt(value, 10) : 100;
 
@@ -800,6 +1103,32 @@ function readRoutePlannerSearchQuery(value: string | undefined): string {
 
 function readSystemSearchQuery(value: string | undefined): string {
   return value?.trim().slice(0, 80) ?? "";
+}
+
+function readLandingPadSize(value: string | undefined): "M" | "L" {
+  return value === "M" ? "M" : "L";
+}
+
+function readCommodityId(value: string | undefined): string | undefined {
+  const commodityId = value?.trim();
+
+  if (!commodityId || !/^[A-Za-z0-9_.$:-]{1,80}$/u.test(commodityId)) {
+    return undefined;
+  }
+
+  return commodityId;
+}
+
+function buildLandingPadPredicate(
+  tableAlias: "stations" | "destination_stations",
+  padSize: "M" | "L",
+): string {
+  const allowedPadSizes =
+    padSize === "L"
+      ? "'L', 'LARGE'"
+      : "'M', 'MEDIUM', 'L', 'LARGE'";
+
+  return `(${tableAlias}.max_landing_pad_size IS NULL OR upper(${tableAlias}.max_landing_pad_size) IN (${allowedPadSizes}))`;
 }
 
 function readIdParam(value: string | undefined): string | undefined {
@@ -870,6 +1199,103 @@ async function readDashboardStats(
       systems: undefined,
     };
   }
+}
+
+async function readRoutePlannerWaypoints(
+  database: DatabaseManager,
+  options: {
+    readonly destination: {
+      readonly systemId: string;
+      readonly x: number;
+      readonly y: number;
+      readonly z: number;
+    };
+    readonly jumps: number;
+    readonly originSystemId: string;
+  },
+): Promise<Array<{
+  readonly distance: number;
+  readonly id: string;
+  readonly jumpIndex: number;
+  readonly name: string;
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+}>> {
+  const jumpIndexes = Array.from(
+    { length: Math.max(0, options.jumps - 1) },
+    (_, index) => index + 1,
+  );
+
+  if (jumpIndexes.length === 0) {
+    return [];
+  }
+
+  const valuePlaceholders = jumpIndexes
+    .map((_, index) => `($${index + 6}::integer)`)
+    .join(", ");
+  const result = await database.query<RoutePlannerWaypointRow>(
+    `
+      WITH origin AS (
+        SELECT id, x, y, z
+        FROM systems
+        WHERE id = $1::bigint
+      ),
+      targets AS (
+        SELECT
+          jump_index,
+          origin.x + (($2::double precision - origin.x) * jump_index / $5::double precision) AS target_x,
+          origin.y + (($3::double precision - origin.y) * jump_index / $5::double precision) AS target_y,
+          origin.z + (($4::double precision - origin.z) * jump_index / $5::double precision) AS target_z
+        FROM origin
+        CROSS JOIN (VALUES ${valuePlaceholders}) AS jumps(jump_index)
+      )
+      SELECT
+        targets.jump_index,
+        systems.id::text,
+        systems.name,
+        systems.x,
+        systems.y,
+        systems.z,
+        sqrt(
+          power(systems.x - targets.target_x, 2) +
+          power(systems.y - targets.target_y, 2) +
+          power(systems.z - targets.target_z, 2)
+        ) AS distance
+      FROM targets
+      CROSS JOIN LATERAL (
+        SELECT id, name, x, y, z
+        FROM systems
+        WHERE id <> $1::bigint
+          AND id <> $${jumpIndexes.length + 6}::bigint
+        ORDER BY
+          power(x - targets.target_x, 2) +
+          power(y - targets.target_y, 2) +
+          power(z - targets.target_z, 2) ASC
+        LIMIT 1
+      ) AS systems
+      ORDER BY targets.jump_index ASC
+    `,
+    [
+      options.originSystemId,
+      options.destination.x,
+      options.destination.y,
+      options.destination.z,
+      options.jumps,
+      ...jumpIndexes,
+      options.destination.systemId,
+    ],
+  );
+
+  return result.rows.map((row) => ({
+    distance: readOptionalNumber(row.distance) ?? 0,
+    id: String(row.id),
+    jumpIndex: readOptionalNumber(row.jump_index) ?? 0,
+    name: row.name,
+    x: readOptionalNumber(row.x) ?? 0,
+    y: readOptionalNumber(row.y) ?? 0,
+    z: readOptionalNumber(row.z) ?? 0,
+  }));
 }
 
 async function readDashboardHealth(
