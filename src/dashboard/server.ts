@@ -92,6 +92,7 @@ interface RoutePlannerCommodityRow {
   readonly category: string | null;
   readonly id: string;
   readonly name: string;
+  readonly source_is_planetary: boolean | null;
   readonly source_station_id: string | number;
   readonly source_station_name: string;
   readonly station_sell_price: string | number | null;
@@ -104,6 +105,7 @@ interface RoutePlannerTradeRouteRow {
   readonly commodity_name: string;
   readonly destination_station_id: string | number;
   readonly destination_station_name: string;
+  readonly destination_is_planetary: boolean | null;
   readonly destination_system_id: string | number;
   readonly destination_system_name: string;
   readonly destination_x: string | number;
@@ -113,6 +115,7 @@ interface RoutePlannerTradeRouteRow {
   readonly profit: string | number | null;
   readonly source_station_id: string | number;
   readonly source_station_name: string;
+  readonly source_is_planetary: boolean | null;
   readonly station_buy_price: string | number | null;
   readonly station_sell_price: string | number | null;
   readonly stock: string | number | null;
@@ -134,9 +137,11 @@ interface RoutePlannerReturnHaulRow {
   readonly commodity_name: string;
   readonly destination_station_id: string | number;
   readonly destination_station_name: string;
+  readonly destination_is_planetary: boolean | null;
   readonly profit: string | number | null;
   readonly source_station_id: string | number;
   readonly source_station_name: string;
+  readonly source_is_planetary: boolean | null;
   readonly station_buy_price: string | number | null;
   readonly station_sell_price: string | number | null;
   readonly stock: string | number | null;
@@ -504,6 +509,8 @@ export async function startDashboardServer(
     }
 
     const systemId = readIdParam(context.req.query("systemId"));
+    const includeFleetCarriers = readQueryBoolean(context.req.query("includeFleetCarriers"));
+    const includePlanetary = readQueryBoolean(context.req.query("includePlanetary"));
     const padSize = readLandingPadSize(context.req.query("padSize"));
 
     if (!systemId) {
@@ -518,6 +525,7 @@ export async function startDashboardServer(
           commodities.category,
           stations.id::text AS source_station_id,
           stations.name AS source_station_name,
+          ${buildPlanetaryPortExpression("stations")} AS source_is_planetary,
           station_commodities.station_sell_price,
           station_commodities.stock
         FROM stations
@@ -529,6 +537,8 @@ export async function startDashboardServer(
           AND stations.has_market = true
           AND station_commodities.station_sell_price > 0
           AND ${buildLandingPadPredicate("stations", padSize)}
+          AND ${buildFleetCarrierPredicate("stations", includeFleetCarriers)}
+          AND ${buildPlanetaryPortPredicate("stations", includePlanetary)}
         ORDER BY
           commodities.id,
           station_commodities.station_sell_price ASC NULLS LAST,
@@ -543,6 +553,7 @@ export async function startDashboardServer(
         category: row.category,
         id: row.id,
         name: row.name,
+        sourceIsPlanetary: row.source_is_planetary === true,
         sourceStationId: String(row.source_station_id),
         sourceStationName: row.source_station_name,
         stationSellPrice: readOptionalNumber(row.station_sell_price),
@@ -564,6 +575,8 @@ export async function startDashboardServer(
     const commodityId = readCommodityId(context.req.query("commodityId"));
     const maxRange = Math.max(1, Math.min(readQueryNumber(context.req.query("maxRange"), 30), 500));
     const maxJumps = Math.max(1, Math.min(readQueryInteger(context.req.query("maxJumps"), 8), 100));
+    const includeFleetCarriers = readQueryBoolean(context.req.query("includeFleetCarriers"));
+    const includePlanetary = readQueryBoolean(context.req.query("includePlanetary"));
     const padSize = readLandingPadSize(context.req.query("padSize"));
 
     if (!originSystemId || !commodityId) {
@@ -582,6 +595,7 @@ export async function startDashboardServer(
           SELECT DISTINCT ON (stations.id)
             stations.id,
             stations.name,
+            ${buildPlanetaryPortExpression("stations")} AS is_planetary,
             station_commodities.station_sell_price,
             station_commodities.stock
           FROM stations
@@ -592,6 +606,8 @@ export async function startDashboardServer(
             AND station_commodities.commodity_id = $2
             AND station_commodities.station_sell_price > 0
             AND ${buildLandingPadPredicate("stations", padSize)}
+            AND ${buildFleetCarrierPredicate("stations", includeFleetCarriers)}
+            AND ${buildPlanetaryPortPredicate("stations", includePlanetary)}
           ORDER BY
             stations.id,
             station_commodities.station_sell_price ASC NULLS LAST,
@@ -603,10 +619,12 @@ export async function startDashboardServer(
           commodities.category AS commodity_category,
           source_offers.id::text AS source_station_id,
           source_offers.name AS source_station_name,
+          source_offers.is_planetary AS source_is_planetary,
           source_offers.station_sell_price,
           source_offers.stock,
           destination_stations.id::text AS destination_station_id,
           destination_stations.name AS destination_station_name,
+          ${buildPlanetaryPortExpression("destination_stations")} AS destination_is_planetary,
           destination_systems.id::text AS destination_system_id,
           destination_systems.name AS destination_system_name,
           destination_systems.x AS destination_x,
@@ -634,6 +652,8 @@ export async function startDashboardServer(
           AND destination_stations.system_id <> origin.id
           AND destination_markets.station_buy_price > 0
           AND ${buildLandingPadPredicate("destination_stations", padSize)}
+          AND ${buildFleetCarrierPredicate("destination_stations", includeFleetCarriers)}
+          AND ${buildPlanetaryPortPredicate("destination_stations", includePlanetary)}
           AND sqrt(
             power(destination_systems.x - origin.x, 2) +
             power(destination_systems.y - origin.y, 2) +
@@ -663,6 +683,7 @@ export async function startDashboardServer(
     const distance = readOptionalNumber(row.distance) ?? 0;
     const jumps = Math.max(1, Math.ceil(distance / maxRange));
     const destination = {
+      isPlanetary: row.destination_is_planetary === true,
       stationId: String(row.destination_station_id),
       stationName: row.destination_station_name,
       systemId: String(row.destination_system_id),
@@ -680,6 +701,8 @@ export async function startDashboardServer(
       : [];
     const returnHaul = await readRoutePlannerReturnHaul(options.database, {
       destinationSystemId: destination.systemId,
+      includeFleetCarriers,
+      includePlanetary,
       originSystemId,
       padSize,
     });
@@ -700,6 +723,7 @@ export async function startDashboardServer(
         jumps,
         profit: readOptionalNumber(row.profit),
         source: {
+          isPlanetary: row.source_is_planetary === true,
           stationId: String(row.source_station_id),
           stationName: row.source_station_name,
           stationSellPrice: readOptionalNumber(row.station_sell_price),
@@ -722,6 +746,8 @@ export async function startDashboardServer(
     const originSystemId = readIdParam(context.req.query("originSystemId"));
     const maxRange = Math.max(1, Math.min(readQueryNumber(context.req.query("maxRange"), 30), 500));
     const maxJumps = Math.max(1, Math.min(readQueryInteger(context.req.query("maxJumps"), 8), 100));
+    const includeFleetCarriers = readQueryBoolean(context.req.query("includeFleetCarriers"));
+    const includePlanetary = readQueryBoolean(context.req.query("includePlanetary"));
     const padSize = readLandingPadSize(context.req.query("padSize"));
 
     if (!originSystemId) {
@@ -740,6 +766,7 @@ export async function startDashboardServer(
           SELECT DISTINCT ON (stations.id, station_commodities.commodity_id)
             stations.id,
             stations.name,
+            ${buildPlanetaryPortExpression("stations")} AS is_planetary,
             station_commodities.commodity_id,
             station_commodities.station_sell_price,
             station_commodities.stock
@@ -750,6 +777,8 @@ export async function startDashboardServer(
             AND stations.has_market = true
             AND station_commodities.station_sell_price > 0
             AND ${buildLandingPadPredicate("stations", padSize)}
+            AND ${buildFleetCarrierPredicate("stations", includeFleetCarriers)}
+            AND ${buildPlanetaryPortPredicate("stations", includePlanetary)}
           ORDER BY
             stations.id,
             station_commodities.commodity_id,
@@ -762,10 +791,12 @@ export async function startDashboardServer(
           commodities.category AS commodity_category,
           source_offers.id::text AS source_station_id,
           source_offers.name AS source_station_name,
+          source_offers.is_planetary AS source_is_planetary,
           source_offers.station_sell_price,
           source_offers.stock,
           destination_stations.id::text AS destination_station_id,
           destination_stations.name AS destination_station_name,
+          ${buildPlanetaryPortExpression("destination_stations")} AS destination_is_planetary,
           destination_systems.id::text AS destination_system_id,
           destination_systems.name AS destination_system_name,
           destination_systems.x AS destination_x,
@@ -793,6 +824,8 @@ export async function startDashboardServer(
           AND destination_stations.system_id <> origin.id
           AND destination_markets.station_buy_price > 0
           AND ${buildLandingPadPredicate("destination_stations", padSize)}
+          AND ${buildFleetCarrierPredicate("destination_stations", includeFleetCarriers)}
+          AND ${buildPlanetaryPortPredicate("destination_stations", includePlanetary)}
           AND sqrt(
             power(destination_systems.x - origin.x, 2) +
             power(destination_systems.y - origin.y, 2) +
@@ -822,6 +855,7 @@ export async function startDashboardServer(
     const distance = readOptionalNumber(row.distance) ?? 0;
     const jumps = Math.max(1, Math.ceil(distance / maxRange));
     const destination = {
+      isPlanetary: row.destination_is_planetary === true,
       stationId: String(row.destination_station_id),
       stationName: row.destination_station_name,
       systemId: String(row.destination_system_id),
@@ -839,6 +873,8 @@ export async function startDashboardServer(
       : [];
     const returnHaul = await readRoutePlannerReturnHaul(options.database, {
       destinationSystemId: destination.systemId,
+      includeFleetCarriers,
+      includePlanetary,
       originSystemId,
       padSize,
     });
@@ -859,6 +895,7 @@ export async function startDashboardServer(
         jumps,
         profit: readOptionalNumber(row.profit),
         source: {
+          isPlanetary: row.source_is_planetary === true,
           stationId: String(row.source_station_id),
           stationName: row.source_station_name,
           stationSellPrice: readOptionalNumber(row.station_sell_price),
@@ -924,6 +961,8 @@ export async function startDashboardServer(
     }
 
     const systemId = readIdParam(context.req.param("systemId"));
+    const includeFleetCarriers = readQueryBoolean(context.req.query("includeFleetCarriers"));
+    const includePlanetary = readQueryBoolean(context.req.query("includePlanetary"));
 
     if (!systemId) {
       return context.json({ error: "Invalid system id" }, 400);
@@ -968,6 +1007,8 @@ export async function startDashboardServer(
             ON station_commodities.station_id = stations.id
           WHERE stations.system_id = $1::bigint
             AND stations.has_market = true
+            AND ${buildFleetCarrierPredicate("stations", includeFleetCarriers)}
+            AND ${buildPlanetaryPortPredicate("stations", includePlanetary)}
           GROUP BY stations.id
           ORDER BY stations.distance_to_arrival ASC NULLS LAST, stations.name ASC
         `,
@@ -985,7 +1026,10 @@ export async function startDashboardServer(
           JOIN commodities
             ON commodities.id = station_commodities.commodity_id
           WHERE stations.system_id = $1::bigint
+            AND stations.has_market = true
             AND station_commodities.station_buy_price > 0
+            AND ${buildFleetCarrierPredicate("stations", includeFleetCarriers)}
+            AND ${buildPlanetaryPortPredicate("stations", includePlanetary)}
           ORDER BY commodities.name ASC
         `,
         [systemId],
@@ -1002,7 +1046,10 @@ export async function startDashboardServer(
           JOIN commodities
             ON commodities.id = station_commodities.commodity_id
           WHERE stations.system_id = $1::bigint
+            AND stations.has_market = true
             AND station_commodities.station_sell_price > 0
+            AND ${buildFleetCarrierPredicate("stations", includeFleetCarriers)}
+            AND ${buildPlanetaryPortPredicate("stations", includePlanetary)}
           ORDER BY commodities.name ASC
         `,
         [systemId],
@@ -1288,6 +1335,10 @@ function readLandingPadSize(value: string | undefined): "M" | "L" {
   return value === "M" ? "M" : "L";
 }
 
+function readQueryBoolean(value: string | undefined): boolean {
+  return value === "true" || value === "1" || value === "yes";
+}
+
 function readCommodityId(value: string | undefined): string | undefined {
   const commodityId = value?.trim();
 
@@ -1308,6 +1359,32 @@ function buildLandingPadPredicate(
       : "'M', 'MEDIUM', 'L', 'LARGE'";
 
   return `(${tableAlias}.max_landing_pad_size IS NULL OR upper(${tableAlias}.max_landing_pad_size) IN (${allowedPadSizes}))`;
+}
+
+function buildPlanetaryPortPredicate(
+  tableAlias: "stations" | "destination_stations",
+  includePlanetary: boolean,
+): string {
+  return includePlanetary
+    ? "true"
+    : `NOT ${buildPlanetaryPortExpression(tableAlias)}`;
+}
+
+function buildPlanetaryPortExpression(
+  tableAlias: "stations" | "destination_stations",
+): string {
+  const normalizedType = `regexp_replace(lower(coalesce(${tableAlias}.type, '')), '[^a-z0-9]', '', 'g')`;
+
+  return `(${tableAlias}.is_planetary IS TRUE OR ${normalizedType} IN ('planetaryport', 'planetaryoutpost', 'odysseysettlement'))`;
+}
+
+function buildFleetCarrierPredicate(
+  tableAlias: "stations" | "destination_stations",
+  includeFleetCarriers: boolean,
+): string {
+  return includeFleetCarriers
+    ? "true"
+    : `regexp_replace(lower(coalesce(${tableAlias}.type, '')), '[^a-z0-9]', '', 'g') <> 'fleetcarrier'`;
 }
 
 function readIdParam(value: string | undefined): string | undefined {
@@ -1481,6 +1558,8 @@ async function readRoutePlannerReturnHaul(
   database: DatabaseManager,
   options: {
     readonly destinationSystemId: string;
+    readonly includeFleetCarriers: boolean;
+    readonly includePlanetary: boolean;
     readonly originSystemId: string;
     readonly padSize: "M" | "L";
   },
@@ -1491,12 +1570,14 @@ async function readRoutePlannerReturnHaul(
     readonly name: string;
   };
   readonly destination: {
+    readonly isPlanetary: boolean;
     readonly stationId: string;
     readonly stationName: string;
     readonly stationBuyPrice: number | undefined;
   };
   readonly profit: number | undefined;
   readonly source: {
+    readonly isPlanetary: boolean;
     readonly stationId: string;
     readonly stationName: string;
     readonly stationSellPrice: number | undefined;
@@ -1509,6 +1590,7 @@ async function readRoutePlannerReturnHaul(
         SELECT
           stations.id,
           stations.name,
+          ${buildPlanetaryPortExpression("stations")} AS is_planetary,
           station_commodities.commodity_id,
           station_commodities.station_sell_price,
           station_commodities.stock
@@ -1519,6 +1601,8 @@ async function readRoutePlannerReturnHaul(
           AND stations.has_market = true
           AND station_commodities.station_sell_price > 0
           AND ${buildLandingPadPredicate("stations", options.padSize)}
+          AND ${buildFleetCarrierPredicate("stations", options.includeFleetCarriers)}
+          AND ${buildPlanetaryPortPredicate("stations", options.includePlanetary)}
       )
       SELECT
         commodities.id AS commodity_id,
@@ -1526,10 +1610,12 @@ async function readRoutePlannerReturnHaul(
         commodities.category AS commodity_category,
         source_offers.id::text AS source_station_id,
         source_offers.name AS source_station_name,
+        source_offers.is_planetary AS source_is_planetary,
         source_offers.station_sell_price,
         source_offers.stock,
         destination_stations.id::text AS destination_station_id,
         destination_stations.name AS destination_station_name,
+        ${buildPlanetaryPortExpression("destination_stations")} AS destination_is_planetary,
         destination_markets.station_buy_price,
         destination_markets.station_buy_price - source_offers.station_sell_price AS profit
       FROM source_offers
@@ -1543,6 +1629,8 @@ async function readRoutePlannerReturnHaul(
         AND destination_stations.has_market = true
         AND destination_markets.station_buy_price > 0
         AND ${buildLandingPadPredicate("destination_stations", options.padSize)}
+        AND ${buildFleetCarrierPredicate("destination_stations", options.includeFleetCarriers)}
+        AND ${buildPlanetaryPortPredicate("destination_stations", options.includePlanetary)}
       ORDER BY
         profit DESC NULLS LAST,
         destination_markets.station_buy_price DESC NULLS LAST,
@@ -1564,12 +1652,14 @@ async function readRoutePlannerReturnHaul(
       name: row.commodity_name,
     },
     destination: {
+      isPlanetary: row.destination_is_planetary === true,
       stationBuyPrice: readOptionalNumber(row.station_buy_price),
       stationId: String(row.destination_station_id),
       stationName: row.destination_station_name,
     },
     profit: readOptionalNumber(row.profit),
     source: {
+      isPlanetary: row.source_is_planetary === true,
       stationId: String(row.source_station_id),
       stationName: row.source_station_name,
       stationSellPrice: readOptionalNumber(row.station_sell_price),

@@ -407,6 +407,8 @@ export const ROUTE_PLANNER_SCRIPT = `
   function clearPlannerRoute() {
     plannerState.route = undefined;
     updatePlannerCopyButtons(undefined);
+    updatePlannerPlanetaryEndpoint("source", false);
+    updatePlannerPlanetaryEndpoint("destination", false);
     resetPlannerReturnTimeline();
   }
 
@@ -502,6 +504,8 @@ export const ROUTE_PLANNER_SCRIPT = `
     }
 
     const params = new URLSearchParams({
+      includeFleetCarriers: String(readPlannerIncludeFleetCarriers()),
+      includePlanetary: String(readPlannerIncludePlanetary()),
       padSize: readPlannerPadSize(),
       systemId: String(plannerState.pickup.id),
     });
@@ -555,6 +559,8 @@ export const ROUTE_PLANNER_SCRIPT = `
     const maxRange = Math.max(1, readPlannerNumber("[data-planner-max-range]", 30));
     const maxJumps = Math.max(1, readPlannerInteger("[data-planner-max-jumps]", 8));
     const params = new URLSearchParams({
+      includeFleetCarriers: String(readPlannerIncludeFleetCarriers()),
+      includePlanetary: String(readPlannerIncludePlanetary()),
       maxJumps: String(maxJumps),
       maxRange: String(maxRange),
       originSystemId: String(plannerState.pickup.id),
@@ -612,6 +618,8 @@ export const ROUTE_PLANNER_SCRIPT = `
 
     const params = new URLSearchParams({
       commodityId,
+      includeFleetCarriers: String(readPlannerIncludeFleetCarriers()),
+      includePlanetary: String(readPlannerIncludePlanetary()),
       maxJumps: String(maxJumps),
       maxRange: String(maxRange),
       originSystemId: String(plannerState.pickup.id),
@@ -669,6 +677,8 @@ export const ROUTE_PLANNER_SCRIPT = `
 
     plannerState.route = route;
     updatePlannerCopyButtons(route);
+    updatePlannerPlanetaryEndpoint("source", Boolean(route.source?.isPlanetary));
+    updatePlannerPlanetaryEndpoint("destination", Boolean(route.destination?.isPlanetary));
     renderPlannerReturnTimeline(route);
     setPlannerBuyerLabel(route.destination.systemName);
     setPlannerStatus(formatNumber(jumps) + " jumps | +" + formatCredits(route.profit ?? 0) + " | " + route.destination.stationName);
@@ -803,6 +813,31 @@ export const ROUTE_PLANNER_SCRIPT = `
     const padSelect = select("[data-planner-pad-size]");
 
     return padSelect instanceof HTMLSelectElement && padSelect.value === "M" ? "M" : "L";
+  }
+
+  function readPlannerIncludePlanetary() {
+    const input = select("[data-planner-include-planetary]");
+
+    return input instanceof HTMLInputElement && input.checked;
+  }
+
+  function readPlannerIncludeFleetCarriers() {
+    const input = select("[data-planner-include-fleet-carriers]");
+
+    return input instanceof HTMLInputElement && input.checked;
+  }
+
+  function updatePlannerPlanetaryEndpoint(kind, isPlanetary) {
+    const node = select(kind === "source" ? "[data-planner-copy-source]" : "[data-planner-copy-destination]")?.closest(".timeline-node");
+    const badge = select(kind === "source" ? "[data-planner-source-planetary]" : "[data-planner-destination-planetary]");
+
+    if (node) {
+      node.classList.toggle("planetary", isPlanetary);
+    }
+
+    if (badge instanceof HTMLElement) {
+      badge.hidden = !isPlanetary;
+    }
   }
 
   async function copyPlannerMarket(kind) {
@@ -1306,6 +1341,8 @@ export const ROUTE_PLANNER_SCRIPT = `
     const plannerMaxRangeInput = select("[data-planner-max-range]");
     const plannerMaxJumpsInput = select("[data-planner-max-jumps]");
     const plannerPadSizeSelect = select("[data-planner-pad-size]");
+    const plannerIncludeFleetCarriersInput = select("[data-planner-include-fleet-carriers]");
+    const plannerIncludePlanetaryInput = select("[data-planner-include-planetary]");
     const plannerCopySourceButton = select("[data-planner-copy-source]");
     const plannerCopyDestinationButton = select("[data-planner-copy-destination]");
     const plannerViewSourceButton = select("[data-planner-view-source]");
@@ -1367,10 +1404,10 @@ export const ROUTE_PLANNER_SCRIPT = `
       });
     }
 
-    [plannerMaxRangeInput, plannerMaxJumpsInput, plannerPadSizeSelect].forEach((control) => {
+    [plannerMaxRangeInput, plannerMaxJumpsInput, plannerPadSizeSelect, plannerIncludeFleetCarriersInput, plannerIncludePlanetaryInput].forEach((control) => {
       if (control) {
         control.addEventListener("change", () => {
-          if (control === plannerPadSizeSelect && plannerState.pickup) {
+          if ((control === plannerPadSizeSelect || control === plannerIncludeFleetCarriersInput || control === plannerIncludePlanetaryInput) && plannerState.pickup) {
             loadPlannerCommodities().catch((error) => setPlannerStatus(error instanceof Error ? error.message : String(error)));
             return;
           }
@@ -1410,6 +1447,7 @@ export const ROUTE_PLANNER_SCRIPT = `
 export const MARKET_BROWSER_SCRIPT = `
 (() => {
   const state = {
+    currentSystemId: undefined,
     searchResults: [],
     searchToken: 0,
   };
@@ -1487,7 +1525,11 @@ export const MARKET_BROWSER_SCRIPT = `
   async function loadSystem(systemId) {
     setStatus("Loading...");
 
-    const response = await window.fetch("/dashboard/data/market-browser/systems/" + encodeURIComponent(systemId), {
+    const params = new URLSearchParams({
+      includeFleetCarriers: String(readMarketIncludeFleetCarriers()),
+      includePlanetary: String(readMarketIncludePlanetary()),
+    });
+    const response = await window.fetch("/dashboard/data/market-browser/systems/" + encodeURIComponent(systemId) + "?" + params.toString(), {
       headers: {
         Accept: "application/json",
       },
@@ -1499,14 +1541,15 @@ export const MARKET_BROWSER_SCRIPT = `
       return;
     }
 
+    state.currentSystemId = systemId;
     renderSystem(await response.json());
   }
 
   function renderSystem(result) {
     const system = result && typeof result.system === "object" ? result.system : undefined;
     const stations = Array.isArray(result?.markets) ? result.markets : [];
-    const bought = Array.isArray(result?.commoditiesBought) ? result.commoditiesBought : [];
-    const sold = Array.isArray(result?.commoditiesSold) ? result.commoditiesSold : [];
+    const imported = Array.isArray(result?.commoditiesBought) ? result.commoditiesBought : [];
+    const exported = Array.isArray(result?.commoditiesSold) ? result.commoditiesSold : [];
 
     if (!system) {
       setStatus("No data");
@@ -1521,13 +1564,13 @@ export const MARKET_BROWSER_SCRIPT = `
     }
 
     setStatus(formatNumber(stations.length) + " markets");
-    renderSummary(system, stations.length, bought.length, sold.length);
+    renderSummary(system, stations.length, imported.length, exported.length);
     renderStations(stations);
-    renderCommodities("[data-market-bought]", bought, "No bought commodities recorded.");
-    renderCommodities("[data-market-sold]", sold, "No sold commodities recorded.");
+    renderCommodities("[data-market-bought]", imported, "No imported commodities recorded.");
+    renderCommodities("[data-market-sold]", exported, "No exported commodities recorded.");
   }
 
-  function renderSummary(system, marketCount, boughtCount, soldCount) {
+  function renderSummary(system, marketCount, importedCount, exportedCount) {
     const summary = select("[data-market-summary]");
 
     if (!summary) {
@@ -1540,8 +1583,8 @@ export const MARKET_BROWSER_SCRIPT = `
       createElement("dl", {}, [
         createSummaryItem("Coordinates", [system.x, system.y, system.z].map(formatNumber).join(", ")),
         createSummaryItem("Markets", formatNumber(marketCount)),
-        createSummaryItem("Bought", formatNumber(boughtCount)),
-        createSummaryItem("Sold", formatNumber(soldCount)),
+        createSummaryItem("Imported", formatNumber(importedCount)),
+        createSummaryItem("Exported", formatNumber(exportedCount)),
       ]),
     );
   }
@@ -1637,8 +1680,28 @@ export const MARKET_BROWSER_SCRIPT = `
       stations.replaceChildren(createEmptyRow(message));
     }
 
-    renderCommodities("[data-market-bought]", [], "No bought commodities recorded.");
-    renderCommodities("[data-market-sold]", [], "No sold commodities recorded.");
+    renderCommodities("[data-market-bought]", [], "No imported commodities recorded.");
+    renderCommodities("[data-market-sold]", [], "No exported commodities recorded.");
+  }
+
+  function readMarketIncludeFleetCarriers() {
+    const input = select("[data-market-include-fleet-carriers]");
+
+    return input instanceof HTMLInputElement && input.checked;
+  }
+
+  function readMarketIncludePlanetary() {
+    const input = select("[data-market-include-planetary]");
+
+    return input instanceof HTMLInputElement && input.checked;
+  }
+
+  function reloadCurrentSystem() {
+    if (!state.currentSystemId) {
+      return;
+    }
+
+    loadSystem(state.currentSystemId).catch(() => setStatus("Could not load"));
   }
 
   function createEmptyRow(message) {
@@ -1707,6 +1770,8 @@ export const MARKET_BROWSER_SCRIPT = `
   window.addEventListener("DOMContentLoaded", () => {
     const input = select("[data-market-system-search]");
     const loadButton = select("[data-market-load]");
+    const includeFleetCarriersInput = select("[data-market-include-fleet-carriers]");
+    const includePlanetaryInput = select("[data-market-include-planetary]");
     let searchTimer = 0;
 
     if (input instanceof HTMLInputElement) {
@@ -1726,6 +1791,12 @@ export const MARKET_BROWSER_SCRIPT = `
         loadSelectedSystem().catch(() => setStatus("Could not load"));
       });
     }
+
+    [includeFleetCarriersInput, includePlanetaryInput].forEach((control) => {
+      if (control instanceof HTMLInputElement) {
+        control.addEventListener("change", reloadCurrentSystem);
+      }
+    });
   });
 
   window.addEventListener("petdb:system-selected", (event) => {

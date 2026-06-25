@@ -185,6 +185,7 @@ function renderRoutePlannerSection(): string {
               <span class="timeline-dot"></span>
               <strong>Pickup</strong>
               <small data-planner-pickup-label>Select system</small>
+              <span class="planetary-badge" data-planner-source-planetary hidden>Planetary</span>
               <div class="timeline-actions">
                 <button type="button" class="timeline-copy" data-planner-copy-source disabled>Copy market</button>
                 <button type="button" class="timeline-copy" data-planner-view-source disabled>View market</button>
@@ -197,6 +198,7 @@ function renderRoutePlannerSection(): string {
               <span class="timeline-dot"></span>
               <strong>Buyer</strong>
               <small data-planner-buyer-label>Best match</small>
+              <span class="planetary-badge" data-planner-destination-planetary hidden>Planetary</span>
               <div class="timeline-actions">
                 <button type="button" class="timeline-copy" data-planner-copy-destination disabled>Copy market</button>
                 <button type="button" class="timeline-copy" data-planner-view-destination disabled>View market</button>
@@ -236,6 +238,14 @@ function renderRoutePlannerSection(): string {
                       <option value="M">Medium</option>
                       <option value="L" selected>Large</option>
                     </select>
+                  </label>
+                  <label class="toggle-field">
+                    <input type="checkbox" data-planner-include-fleet-carriers>
+                    <span>Include fleet carriers</span>
+                  </label>
+                  <label class="toggle-field">
+                    <input type="checkbox" data-planner-include-planetary>
+                    <span>Include planetary settlements</span>
                   </label>
                 </div>
                 <div class="planner-command-row">
@@ -338,11 +348,23 @@ function renderMarketBrowserSection(): string {
           <button type="button" class="secondary" data-market-load>Load markets</button>
         </div>
         <div class="market-summary" data-market-summary>
-          <p class="muted">Select a system to see its markets and the unique commodities bought and sold there.</p>
+          <p class="muted">Select a system to see its markets and the unique commodities imported and exported there.</p>
         </div>
         <div class="market-layout">
           <section class="market-panel">
-            <h3>Markets</h3>
+            <div class="market-panel-header">
+              <h3>Markets</h3>
+              <div class="market-filter-row">
+                <label class="toggle-field">
+                  <input type="checkbox" data-market-include-fleet-carriers>
+                  <span>Include fleet carriers</span>
+                </label>
+                <label class="toggle-field">
+                  <input type="checkbox" data-market-include-planetary>
+                  <span>Include planetary ports</span>
+                </label>
+              </div>
+            </div>
             <div class="table-shell">
               <table>
                 <thead>
@@ -351,8 +373,8 @@ function renderMarketBrowserSection(): string {
                     <th>Type</th>
                     <th>Pad</th>
                     <th>Arrival</th>
-                    <th>Bought</th>
-                    <th>Sold</th>
+                    <th>Imported</th>
+                    <th>Exported</th>
                     <th>Updated</th>
                   </tr>
                 </thead>
@@ -363,13 +385,13 @@ function renderMarketBrowserSection(): string {
             </div>
           </section>
           <section class="market-panel">
-            <h3>Unique Commodities Bought</h3>
+            <h3>Unique Commodities Imported</h3>
             <ul class="commodity-list" data-market-bought>
               <li class="muted">No system selected.</li>
             </ul>
           </section>
           <section class="market-panel">
-            <h3>Unique Commodities Sold</h3>
+            <h3>Unique Commodities Exported</h3>
             <ul class="commodity-list" data-market-sold>
               <li class="muted">No system selected.</li>
             </ul>
@@ -762,7 +784,27 @@ function renderDocument(options: {
         white-space: nowrap;
       }
       .planner-settings {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+      }
+      .toggle-field {
+        align-items: center;
+        background: #090c12;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        display: flex;
+        gap: 0.6rem;
+        margin-top: 1.35rem;
+        min-height: 2.85rem;
+        padding: 0.6rem 0.75rem;
+      }
+      .toggle-field input {
+        accent-color: var(--accent);
+        margin: 0;
+        width: auto;
+      }
+      .toggle-field span {
+        color: var(--text);
+        font-size: 0.82rem;
       }
       .planner-command-row {
         display: grid;
@@ -890,6 +932,10 @@ function renderDocument(options: {
         min-height: 6.5rem;
         padding: 0.65rem;
       }
+      .timeline-node.endpoint.planetary {
+        border-color: rgba(255, 157, 80, 0.82);
+        box-shadow: inset 0 0 0 1px rgba(255, 157, 80, 0.18), 0 0 1rem rgba(255, 157, 80, 0.12);
+      }
       .timeline-node.endpoint strong {
         left: 0.65rem;
         position: absolute;
@@ -913,6 +959,23 @@ function renderDocument(options: {
         color: var(--muted);
         font-size: 0.78rem;
         overflow-wrap: anywhere;
+      }
+      .planetary-badge {
+        background: rgba(255, 157, 80, 0.14);
+        border: 1px solid rgba(255, 157, 80, 0.72);
+        border-radius: 999px;
+        color: #ffd4b0;
+        font-size: 0.62rem;
+        font-weight: 900;
+        left: 50%;
+        letter-spacing: 0.04em;
+        line-height: 1;
+        padding: 0.18rem 0.4rem;
+        position: absolute;
+        text-transform: uppercase;
+        top: 2.8rem;
+        transform: translateX(-50%);
+        white-space: nowrap;
       }
       .timeline-actions {
         bottom: 0.55rem;
@@ -1059,6 +1122,23 @@ function renderDocument(options: {
         gap: 0.75rem;
         grid-template-columns: minmax(16rem, 1fr) auto;
       }
+      .market-filter-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+      }
+      .market-panel-header {
+        align-items: start;
+        display: flex;
+        gap: 0.75rem;
+        justify-content: space-between;
+        margin-bottom: 0.75rem;
+      }
+      .market-filter-row .toggle-field {
+        margin-top: 0;
+        min-height: 2.35rem;
+        padding: 0.45rem 0.65rem;
+      }
       .market-summary {
         background: var(--panel-strong);
         border: 1px solid var(--line);
@@ -1105,7 +1185,7 @@ function renderDocument(options: {
       }
       .market-panel h3 {
         font-size: 1rem;
-        margin: 0 0 0.75rem;
+        margin: 0;
       }
       .table-shell {
         max-height: 30rem;
@@ -1291,6 +1371,8 @@ function renderDocument(options: {
           font-size: 3rem;
         }
       .market-search-row,
+        .market-filter-row,
+        .market-panel-header,
         .market-layout,
         .market-summary dl {
           grid-template-columns: 1fr;
