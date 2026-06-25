@@ -10,6 +10,7 @@
     enabled: false,
     enabling: false,
     group: undefined,
+    guideLines: undefined,
     hoveredSystem: undefined,
     isDragging: false,
     lastPointer: { x: 0, y: 0 },
@@ -1160,6 +1161,13 @@
       state.points = undefined;
     }
 
+    if (state.guideLines) {
+      state.group.remove(state.guideLines);
+      state.guideLines.geometry.dispose();
+      state.guideLines.material.dispose();
+      state.guideLines = undefined;
+    }
+
     if (state.systems.length === 0) {
       setStatus("No systems found near that reference point.");
       return;
@@ -1170,18 +1178,33 @@
     const scale = Math.min(8, 140 / maxDistance);
     const positions = new Float32Array(state.systems.length * 3);
     const colors = new Float32Array(state.systems.length * 3);
+    const guideLinePositions = new Float32Array(state.systems.length * 6);
 
     state.systems.forEach((system, index) => {
       const offset = index * 3;
+      const guideOffset = index * 6;
       const distanceRatio = Math.min(1, (Number(system.distance) || 0) / maxDistance);
       positions[offset] = (Number(system.x) - origin.x) * scale;
       positions[offset + 1] = (Number(system.y) - origin.y) * scale;
       positions[offset + 2] = (Number(system.z) - origin.z) * scale;
+      guideLinePositions[guideOffset] = positions[offset];
+      guideLinePositions[guideOffset + 1] = positions[offset + 1];
+      guideLinePositions[guideOffset + 2] = positions[offset + 2];
+      guideLinePositions[guideOffset + 3] = positions[offset];
+      guideLinePositions[guideOffset + 4] = 0;
+      guideLinePositions[guideOffset + 5] = positions[offset + 2];
       colors[offset] = 0.28 + 0.5 * (1 - distanceRatio);
       colors[offset + 1] = 0.84;
       colors[offset + 2] = 1;
     });
 
+    const guideLineGeometry = new three.BufferGeometry();
+    guideLineGeometry.setAttribute("position", new three.BufferAttribute(guideLinePositions, 3));
+    const guideLineMaterial = new three.LineBasicMaterial({
+      color: 0x7f8794,
+      opacity: 0.36,
+      transparent: true,
+    });
     const geometry = new three.BufferGeometry();
     geometry.setAttribute("position", new three.BufferAttribute(positions, 3));
     geometry.setAttribute("color", new three.BufferAttribute(colors, 3));
@@ -1213,7 +1236,9 @@
       transparent: true,
     });
 
+    state.guideLines = new three.LineSegments(guideLineGeometry, guideLineMaterial);
     state.points = new three.Points(geometry, material);
+    state.group.add(state.guideLines);
     state.group.add(state.points);
   }
 
@@ -1392,6 +1417,7 @@
 
     const enableButton = select("[data-route-enable]");
     const loadButton = select("[data-route-load]");
+    const routeLimitSelect = select("[data-route-limit]");
     const referenceInput = select("[data-route-reference-search]");
     const setReferenceButton = select("[data-route-set-reference]");
     const plannerPickupInput = select("[data-planner-pickup-search]");
@@ -1424,6 +1450,12 @@
 
     if (loadButton instanceof HTMLButtonElement) {
       loadButton.addEventListener("click", () => {
+        loadSystems().catch((error) => setStatus(error instanceof Error ? error.message : String(error)));
+      });
+    }
+
+    if (routeLimitSelect instanceof HTMLSelectElement) {
+      routeLimitSelect.addEventListener("change", () => {
         loadSystems().catch((error) => setStatus(error instanceof Error ? error.message : String(error)));
       });
     }
