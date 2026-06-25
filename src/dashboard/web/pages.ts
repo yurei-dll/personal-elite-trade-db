@@ -210,6 +210,7 @@ function renderRoutePlannerSection(): string {
                   <option value="">Choose pickup first</option>
                 </select>
               </label>
+              <button type="button" class="secondary planner-use-best" data-planner-use-best disabled>Use best</button>
             </div>
             <div class="planner-settings">
               <label>
@@ -230,8 +231,9 @@ function renderRoutePlannerSection(): string {
             </div>
             <button type="button" data-planner-build>Build route</button>
           </aside>
-          <div class="cycle-turn cycle-turn-right" aria-hidden="true">
-            <span>↓</span>
+          <div class="cycle-turn-row" aria-hidden="true">
+            <span class="cycle-turn cycle-turn-left">↑</span>
+            <span class="cycle-turn cycle-turn-right">↓</span>
           </div>
           <section class="planner-timeline planner-return-timeline">
             <div class="timeline-node endpoint">
@@ -248,9 +250,6 @@ function renderRoutePlannerSection(): string {
               <small data-planner-return-start-label>Buyer system</small>
             </div>
           </section>
-          <div class="cycle-turn cycle-turn-left" aria-hidden="true">
-            <span>↑</span>
-          </div>
         </div>
       </div>
     </section>
@@ -735,7 +734,13 @@ function renderDocument(options: {
         align-items: end;
       }
       .planner-endpoints {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        align-items: end;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+      }
+      .planner-use-best {
+        font-size: 0.82rem;
+        padding: 0.7rem 0.85rem;
+        white-space: nowrap;
       }
       .planner-settings {
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -760,19 +765,26 @@ function renderDocument(options: {
       .planner-return-timeline .timeline-track::before {
         background: rgba(123, 242, 196, 0.55);
       }
-      .planner-return-timeline .timeline-hop::after,
       .timeline-hop::after {
+        background: #090c12;
+        border: 1px solid rgba(72, 215, 255, 0.38);
+        border-radius: 999px;
         color: var(--accent);
-        content: "→";
-        font-size: 0.9rem;
+        content: attr(data-distance) " →";
+        font-size: 0.7rem;
         font-weight: 900;
+        line-height: 1;
+        padding: 0.18rem 0.35rem;
         position: absolute;
-        right: -0.25rem;
-        top: calc(50% - 0.7rem);
+        right: -1.25rem;
+        top: calc(50% - 1.55rem);
+        white-space: nowrap;
+        z-index: 3;
       }
       .planner-return-timeline .timeline-hop::after {
+        border-color: rgba(123, 242, 196, 0.38);
         color: var(--accent-strong);
-        content: "←";
+        content: "← " attr(data-distance);
       }
       .timeline-hop:last-child::after {
         content: "";
@@ -787,6 +799,15 @@ function renderDocument(options: {
         background: var(--accent-strong);
         box-shadow: 0 0 0 1px var(--accent-strong), 0 0 1.25rem rgba(123, 242, 196, 0.28);
       }
+      .cycle-turn-row {
+        align-items: center;
+        display: flex;
+        justify-content: space-between;
+        margin: -0.4rem 0;
+        min-height: 1.5rem;
+        pointer-events: none;
+        padding: 0 min(5rem, 12%);
+      }
       .cycle-turn {
         align-items: center;
         color: var(--accent);
@@ -794,18 +815,9 @@ function renderDocument(options: {
         font-size: 1.5rem;
         font-weight: 900;
         justify-content: center;
-        margin: -0.4rem 0;
-        min-height: 1.5rem;
-        pointer-events: none;
-      }
-      .cycle-turn-right {
-        justify-content: flex-end;
-        padding-right: min(5rem, 12%);
       }
       .cycle-turn-left {
         color: var(--accent-strong);
-        justify-content: flex-start;
-        padding-left: min(5rem, 12%);
       }
       .timeline-track {
         align-items: center;
@@ -945,13 +957,7 @@ function renderDocument(options: {
         transform: translate(-50%, 0);
       }
       .timeline-meta {
-        color: var(--muted);
-        font-size: 0.7rem;
-        left: 50%;
-        position: absolute;
-        top: calc(50% - 1.6rem);
-        transform: translateX(-50%);
-        white-space: nowrap;
+        display: none;
       }
       .route-shell {
         min-height: 36rem;
@@ -1257,7 +1263,7 @@ function renderDocument(options: {
         .planner-return-timeline .timeline-hop:last-child::after {
           content: "";
         }
-        .cycle-turn {
+        .cycle-turn-row {
           margin: -0.25rem 0;
           padding: 0;
         }

@@ -467,6 +467,7 @@ export const ROUTE_PLANNER_SCRIPT = `
 
   function resetPlannerCommodities(message) {
     const commoditySelect = select("[data-planner-commodity]");
+    const useBestButton = select("[data-planner-use-best]");
 
     plannerState.commodities = [];
 
@@ -476,6 +477,10 @@ export const ROUTE_PLANNER_SCRIPT = `
       option.textContent = message;
       commoditySelect.replaceChildren(option);
       commoditySelect.disabled = true;
+    }
+
+    if (useBestButton instanceof HTMLButtonElement) {
+      useBestButton.disabled = true;
     }
   }
 
@@ -519,8 +524,54 @@ export const ROUTE_PLANNER_SCRIPT = `
       option.textContent = commodity.name + " | " + commodity.sourceStationName + price;
       return option;
     }));
+    const useBestButton = select("[data-planner-use-best]");
+
+    if (useBestButton instanceof HTMLButtonElement) {
+      useBestButton.disabled = false;
+    }
+
     setPlannerStatus(formatNumber(plannerState.commodities.length) + " commodities");
     buildPlannerRoute().catch((error) => setPlannerStatus(error instanceof Error ? error.message : String(error)));
+  }
+
+  async function useBestPlannerCommodity() {
+    const commoditySelect = select("[data-planner-commodity]");
+
+    if (!(commoditySelect instanceof HTMLSelectElement) || !plannerState.pickup || plannerState.commodities.length === 0) {
+      setPlannerStatus("No commodities");
+      return;
+    }
+
+    const maxRange = Math.max(1, readPlannerNumber("[data-planner-max-range]", 30));
+    const maxJumps = Math.max(1, readPlannerInteger("[data-planner-max-jumps]", 8));
+    const params = new URLSearchParams({
+      maxJumps: String(maxJumps),
+      maxRange: String(maxRange),
+      originSystemId: String(plannerState.pickup.id),
+      padSize: readPlannerPadSize(),
+    });
+
+    setPlannerStatus("Finding best route");
+    const response = await window.fetch("/dashboard/data/route-planner/best-trade-route?" + params.toString(), {
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      setPlannerStatus("Best route failed");
+      return;
+    }
+
+    const result = await response.json();
+
+    if (!result.route) {
+      setPlannerStatus("No best route");
+      return;
+    }
+
+    commoditySelect.value = result.route.commodity.id;
+    renderPlannerRoute(result.route);
   }
 
   async function buildPlannerRoute() {
@@ -715,6 +766,7 @@ export const ROUTE_PLANNER_SCRIPT = `
 
     button.type = "button";
     button.className = "timeline-hop";
+    button.dataset.distance = hop.meta || "";
     dot.className = "timeline-dot";
     name.className = "timeline-name";
     meta.className = "timeline-meta";
@@ -1217,6 +1269,7 @@ export const ROUTE_PLANNER_SCRIPT = `
     const plannerPickupInput = select("[data-planner-pickup-search]");
     const plannerCommoditySelect = select("[data-planner-commodity]");
     const plannerBuildButton = select("[data-planner-build]");
+    const plannerUseBestButton = select("[data-planner-use-best]");
     const plannerMaxRangeInput = select("[data-planner-max-range]");
     const plannerMaxJumpsInput = select("[data-planner-max-jumps]");
     const plannerPadSizeSelect = select("[data-planner-pad-size]");
@@ -1270,6 +1323,12 @@ export const ROUTE_PLANNER_SCRIPT = `
     if (plannerBuildButton instanceof HTMLButtonElement) {
       plannerBuildButton.addEventListener("click", () => {
         buildPlannerRoute().catch((error) => setPlannerStatus(error instanceof Error ? error.message : String(error)));
+      });
+    }
+
+    if (plannerUseBestButton instanceof HTMLButtonElement) {
+      plannerUseBestButton.addEventListener("click", () => {
+        useBestPlannerCommodity().catch((error) => setPlannerStatus(error instanceof Error ? error.message : String(error)));
       });
     }
 

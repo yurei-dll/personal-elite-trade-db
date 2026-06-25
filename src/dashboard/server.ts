@@ -712,6 +712,165 @@ export async function startDashboardServer(
     });
   });
 
+  app.get("/dashboard/data/route-planner/best-trade-route", async (context) => {
+    const session = readSession(context.req.header("Cookie"), sessionSecret);
+
+    if (!session) {
+      return context.json({ error: "Unauthorized" }, 401);
+    }
+
+    const originSystemId = readIdParam(context.req.query("originSystemId"));
+    const maxRange = Math.max(1, Math.min(readQueryNumber(context.req.query("maxRange"), 30), 500));
+    const maxJumps = Math.max(1, Math.min(readQueryInteger(context.req.query("maxJumps"), 8), 100));
+    const padSize = readLandingPadSize(context.req.query("padSize"));
+
+    if (!originSystemId) {
+      return context.json({ error: "Invalid route request" }, 400);
+    }
+
+    const maxDistance = maxRange * maxJumps;
+    const result = await options.database.query<RoutePlannerTradeRouteRow>(
+      `
+        WITH origin AS (
+          SELECT id, name, x, y, z
+          FROM systems
+          WHERE id = $1::bigint
+        ),
+        source_offers AS (
+          SELECT DISTINCT ON (stations.id, station_commodities.commodity_id)
+            stations.id,
+            stations.name,
+            station_commodities.commodity_id,
+            station_commodities.station_sell_price,
+            station_commodities.stock
+          FROM stations
+          JOIN station_commodities
+            ON station_commodities.station_id = stations.id
+          WHERE stations.system_id = $1::bigint
+            AND stations.has_market = true
+            AND station_commodities.station_sell_price > 0
+            AND ${buildLandingPadPredicate("stations", padSize)}
+          ORDER BY
+            stations.id,
+            station_commodities.commodity_id,
+            station_commodities.station_sell_price ASC NULLS LAST,
+            stations.distance_to_arrival ASC NULLS LAST
+        )
+        SELECT
+          commodities.id AS commodity_id,
+          commodities.name AS commodity_name,
+          commodities.category AS commodity_category,
+          source_offers.id::text AS source_station_id,
+          source_offers.name AS source_station_name,
+          source_offers.station_sell_price,
+          source_offers.stock,
+          destination_stations.id::text AS destination_station_id,
+          destination_stations.name AS destination_station_name,
+          destination_systems.id::text AS destination_system_id,
+          destination_systems.name AS destination_system_name,
+          destination_systems.x AS destination_x,
+          destination_systems.y AS destination_y,
+          destination_systems.z AS destination_z,
+          destination_markets.station_buy_price,
+          destination_markets.station_buy_price - source_offers.station_sell_price AS profit,
+          sqrt(
+            power(destination_systems.x - origin.x, 2) +
+            power(destination_systems.y - origin.y, 2) +
+            power(destination_systems.z - origin.z, 2)
+          ) AS distance
+        FROM origin
+        JOIN source_offers
+          ON true
+        JOIN commodities
+          ON commodities.id = source_offers.commodity_id
+        JOIN station_commodities AS destination_markets
+          ON destination_markets.commodity_id = source_offers.commodity_id
+        JOIN stations AS destination_stations
+          ON destination_stations.id = destination_markets.station_id
+        JOIN systems AS destination_systems
+          ON destination_systems.id = destination_stations.system_id
+        WHERE destination_stations.has_market = true
+          AND destination_stations.system_id <> origin.id
+          AND destination_markets.station_buy_price > 0
+          AND ${buildLandingPadPredicate("destination_stations", padSize)}
+          AND sqrt(
+            power(destination_systems.x - origin.x, 2) +
+            power(destination_systems.y - origin.y, 2) +
+            power(destination_systems.z - origin.z, 2)
+          ) <= $2::double precision
+        ORDER BY
+          profit DESC NULLS LAST,
+          distance ASC,
+          destination_markets.station_buy_price DESC NULLS LAST,
+          destination_stations.distance_to_arrival ASC NULLS LAST
+        LIMIT 1
+      `,
+      [originSystemId, maxDistance],
+    );
+    const row = result.rows[0];
+
+    if (!row) {
+      return context.json({
+        maxDistance,
+        maxJumps,
+        maxRange,
+        padSize,
+        route: null,
+      });
+    }
+
+    const distance = readOptionalNumber(row.distance) ?? 0;
+    const jumps = Math.max(1, Math.ceil(distance / maxRange));
+    const destination = {
+      stationId: String(row.destination_station_id),
+      stationName: row.destination_station_name,
+      systemId: String(row.destination_system_id),
+      systemName: row.destination_system_name,
+      x: readOptionalNumber(row.destination_x) ?? 0,
+      y: readOptionalNumber(row.destination_y) ?? 0,
+      z: readOptionalNumber(row.destination_z) ?? 0,
+    };
+    const waypoints = jumps > 1
+      ? await readRoutePlannerWaypoints(options.database, {
+          destination,
+          jumps,
+          originSystemId,
+        })
+      : [];
+    const returnHaul = await readRoutePlannerReturnHaul(options.database, {
+      destinationSystemId: destination.systemId,
+      originSystemId,
+      padSize,
+    });
+
+    return context.json({
+      maxDistance,
+      maxJumps,
+      maxRange,
+      padSize,
+      route: {
+        commodity: {
+          category: row.commodity_category,
+          id: row.commodity_id,
+          name: row.commodity_name,
+        },
+        destination,
+        distance,
+        jumps,
+        profit: readOptionalNumber(row.profit),
+        source: {
+          stationId: String(row.source_station_id),
+          stationName: row.source_station_name,
+          stationSellPrice: readOptionalNumber(row.station_sell_price),
+          stock: readOptionalNumber(row.stock),
+        },
+        stationBuyPrice: readOptionalNumber(row.station_buy_price),
+        returnHaul,
+        waypoints,
+      },
+    });
+  });
+
   app.get("/dashboard/data/market-browser/system-search", async (context) => {
     const session = readSession(context.req.header("Cookie"), sessionSecret);
 
