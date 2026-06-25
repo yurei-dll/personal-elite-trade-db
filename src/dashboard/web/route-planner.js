@@ -45,6 +45,10 @@
     return Number.isFinite(value) ? value : fallback;
   }
 
+  function readPlannerCargoSpace() {
+    return Math.max(1, readPlannerInteger("[data-planner-cargo-space]", 100));
+  }
+
   function setPlannerStatus(message, options) {
     const status = select("[data-planner-status]");
 
@@ -164,6 +168,7 @@
     updatePlannerCopyButtons(undefined);
     updatePlannerPlanetaryEndpoint("source", false);
     updatePlannerPlanetaryEndpoint("destination", false);
+    updatePlannerCashflow(undefined);
     resetPlannerReturnTimeline();
 
     if (typeof message === "string" && track) {
@@ -460,11 +465,52 @@
     updatePlannerPlanetaryEndpoint("source", Boolean(route.source?.isPlanetary));
     updatePlannerPlanetaryEndpoint("destination", Boolean(route.destination?.isPlanetary));
     renderPlannerReturnTimeline(route);
+    updatePlannerCashflow(route);
     setPlannerBuyerLabel(route.destination.systemName);
+    updatePlannerRouteStatus(route, jumps);
+  }
+
+  function updatePlannerRouteStatus(route, jumps) {
+    const totalProfit = calculatePlannerTripProfit(route);
+
     setPlannerStatus(
-      formatNumber(jumps) + " jumps | " + formatSignedCredits(route.profit ?? 0) + " | " + route.destination.stationName + formatRouteFreshness(route),
-      { isLoss: Number(route.profit) < 0 },
+      formatNumber(jumps) + " jumps | " + formatSignedCredits(totalProfit) + " / trip | " + route.destination.stationName + formatRouteFreshness(route),
+      { isLoss: totalProfit < 0 },
     );
+  }
+
+  function calculatePlannerTripProfit(route) {
+    const cargoSpace = readPlannerCargoSpace();
+    const outboundProfit = Number(route?.profit) || 0;
+    const returnProfit = Number(route?.returnHaul?.profit) || 0;
+
+    return (outboundProfit + returnProfit) * cargoSpace;
+  }
+
+  function updatePlannerCashflow(route) {
+    const cargoSpace = readPlannerCargoSpace();
+
+    setPlannerCashBadge("[data-planner-source-cash]", route ? -(Number(route.source?.stationSellPrice) || 0) * cargoSpace : undefined);
+    setPlannerCashBadge("[data-planner-destination-cash]", route ? (Number(route.stationBuyPrice) || 0) * cargoSpace : undefined);
+    setPlannerCashBadge("[data-planner-return-source-cash]", route?.returnHaul ? -(Number(route.returnHaul.source?.stationSellPrice) || 0) * cargoSpace : undefined);
+    setPlannerCashBadge("[data-planner-return-destination-cash]", route?.returnHaul ? (Number(route.returnHaul.destination?.stationBuyPrice) || 0) * cargoSpace : undefined);
+  }
+
+  function setPlannerCashBadge(selector, value) {
+    const badge = select(selector);
+
+    if (!(badge instanceof HTMLElement)) {
+      return;
+    }
+
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      badge.hidden = true;
+      badge.textContent = "";
+      return;
+    }
+
+    badge.hidden = false;
+    badge.textContent = formatSignedCredits(value);
   }
 
   function readPlannerRoutePoints(route) {
@@ -1220,6 +1266,7 @@
     const plannerCommoditySelect = select("[data-planner-commodity]");
     const plannerBuildButton = select("[data-planner-build]");
     const plannerUseBestButton = select("[data-planner-use-best]");
+    const plannerCargoSpaceInput = select("[data-planner-cargo-space]");
     const plannerMaxRangeInput = select("[data-planner-max-range]");
     const plannerMaxJumpsInput = select("[data-planner-max-jumps]");
     const plannerPadSizeSelect = select("[data-planner-pad-size]");
@@ -1287,6 +1334,17 @@
 
     if (plannerUseBestButton instanceof HTMLButtonElement) {
       plannerUseBestButton.addEventListener("click", useBestPlannerCommodity);
+    }
+
+    if (plannerCargoSpaceInput instanceof HTMLInputElement) {
+      plannerCargoSpaceInput.addEventListener("input", () => {
+        if (!plannerState.route) {
+          return;
+        }
+
+        updatePlannerCashflow(plannerState.route);
+        updatePlannerRouteStatus(plannerState.route, Math.max(1, Number(plannerState.route.jumps) || 1));
+      });
     }
 
     [

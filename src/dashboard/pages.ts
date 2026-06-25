@@ -189,6 +189,7 @@ function renderRoutePlannerSection(): string {
               <span class="timeline-dot"></span>
               <strong>Pickup</strong>
               <small data-planner-pickup-label>Select system</small>
+              <span class="timeline-cash-badge loss" data-planner-source-cash hidden></span>
               <span class="planetary-badge" data-planner-source-planetary hidden>Planetary</span>
               <div class="timeline-actions">
                 <button type="button" class="timeline-copy" data-planner-copy-source disabled>Copy market</button>
@@ -202,6 +203,7 @@ function renderRoutePlannerSection(): string {
               <span class="timeline-dot"></span>
               <strong>Buyer</strong>
               <small data-planner-buyer-label>Best match</small>
+              <span class="timeline-cash-badge gain" data-planner-destination-cash hidden></span>
               <span class="planetary-badge" data-planner-destination-planetary hidden>Planetary</span>
               <div class="timeline-actions">
                 <button type="button" class="timeline-copy" data-planner-copy-destination disabled>Copy market</button>
@@ -228,6 +230,10 @@ function renderRoutePlannerSection(): string {
                   <button type="button" class="secondary planner-use-best" data-planner-use-best disabled>Use best</button>
                 </div>
                 <div class="planner-settings">
+                  <label>
+                    <span>Cargo space</span>
+                    <input type="number" min="1" max="100000" step="1" value="100" data-planner-cargo-space>
+                  </label>
                   <label>
                     <span>Max jump range</span>
                     <input type="number" min="1" max="500" step="0.1" value="30" data-planner-max-range>
@@ -269,6 +275,7 @@ function renderRoutePlannerSection(): string {
               <span class="timeline-dot"></span>
               <strong>Pickup</strong>
               <small data-planner-return-end-label>Pickup system</small>
+              <span class="timeline-cash-badge gain" data-planner-return-destination-cash hidden></span>
             </div>
             <div class="timeline-track" data-planner-return-track>
               <p class="muted">Return haul appears after a route is built.</p>
@@ -277,6 +284,7 @@ function renderRoutePlannerSection(): string {
               <span class="timeline-dot"></span>
               <strong>Return commodity</strong>
               <small data-planner-return-start-label>Buyer system</small>
+              <span class="timeline-cash-badge loss" data-planner-return-source-cash hidden></span>
             </div>
           </section>
         </div>
