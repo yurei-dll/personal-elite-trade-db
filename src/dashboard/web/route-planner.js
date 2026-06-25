@@ -11,6 +11,7 @@
     raycaster: undefined,
     referenceSystem: undefined,
     renderer: undefined,
+    routeViewingMode: false,
     scene: undefined,
     searchResults: [],
     searchToken: 0,
@@ -130,6 +131,7 @@
     const destinationButton = select("[data-planner-copy-destination]");
     const viewSourceButton = select("[data-planner-view-source]");
     const viewDestinationButton = select("[data-planner-view-destination]");
+    const viewRouteButton = select("[data-planner-view-route]");
 
     if (sourceButton instanceof HTMLButtonElement) {
       sourceButton.disabled = !route;
@@ -147,6 +149,10 @@
 
     if (viewDestinationButton instanceof HTMLButtonElement) {
       viewDestinationButton.disabled = !route;
+    }
+
+    if (viewRouteButton instanceof HTMLButtonElement) {
+      viewRouteButton.disabled = !route;
     }
   }
 
@@ -666,6 +672,67 @@
     }));
   }
 
+  function viewPlannerRoute() {
+    const route = plannerState.route;
+
+    if (!route) {
+      setPlannerStatus("Build a route first");
+      return;
+    }
+
+    activateTab("galaxy-map");
+    setRouteViewingMode(true, route);
+    enableRoutePlanner().catch((error) => setStatus(error instanceof Error ? error.message : String(error)));
+  }
+
+  function setRouteViewingMode(isViewing, route) {
+    state.routeViewingMode = isViewing;
+
+    const exitButton = select("[data-route-exit-view]");
+    const frame = select(".route-map-frame");
+
+    if (exitButton instanceof HTMLButtonElement) {
+      exitButton.hidden = !isViewing;
+    }
+
+    if (frame instanceof HTMLElement) {
+      frame.classList.toggle("route-viewing", isViewing);
+    }
+
+    updateRouteReferenceControls();
+
+    if (isViewing) {
+      const destinationName = route?.destination?.systemName || "route";
+      setStatus("Route view: " + destinationName);
+      return;
+    }
+
+    setStatus(state.enabled ? "Route view closed." : "3D map disabled. No systems loaded.");
+  }
+
+  function updateRouteReferenceControls() {
+    const routeLimitSelect = select("[data-route-limit]");
+    const referenceInput = select("[data-route-reference-search]");
+    const setReferenceButton = select("[data-route-set-reference]");
+    const loadButton = select("[data-route-load]");
+
+    if (routeLimitSelect instanceof HTMLSelectElement) {
+      routeLimitSelect.disabled = state.routeViewingMode;
+    }
+
+    if (referenceInput instanceof HTMLInputElement) {
+      referenceInput.disabled = state.routeViewingMode;
+    }
+
+    if (setReferenceButton instanceof HTMLButtonElement) {
+      setReferenceButton.disabled = state.routeViewingMode;
+    }
+
+    if (loadButton instanceof HTMLButtonElement) {
+      loadButton.disabled = state.routeViewingMode || !state.enabled;
+    }
+  }
+
   async function writeClipboardText(value) {
     if (window.navigator.clipboard?.writeText) {
       await window.navigator.clipboard.writeText(value);
@@ -811,10 +878,15 @@
     }
 
     if (loadButton instanceof HTMLButtonElement) {
-      loadButton.disabled = false;
+      loadButton.disabled = state.routeViewingMode;
     }
 
     initializeScene(canvas, state.three);
+    if (state.routeViewingMode) {
+      setStatus("Route view ready.");
+      return;
+    }
+
     await loadSystems();
   }
 
@@ -886,6 +958,11 @@
 
   async function loadSystems() {
     if (!state.enabled) {
+      return;
+    }
+
+    if (state.routeViewingMode) {
+      setStatus("Exit route view to load nearest systems.");
       return;
     }
 
@@ -1052,6 +1129,11 @@
       return;
     }
 
+    if (state.routeViewingMode) {
+      setStatus("Exit route view to change reference.");
+      return;
+    }
+
     const query = input.value.trim().toLowerCase();
     const match = state.searchResults.find((system) => system.name.toLowerCase() === query)
       ?? state.searchResults[0];
@@ -1128,6 +1210,8 @@
     const plannerCopyDestinationButton = select("[data-planner-copy-destination]");
     const plannerViewSourceButton = select("[data-planner-view-source]");
     const plannerViewDestinationButton = select("[data-planner-view-destination]");
+    const plannerViewRouteButton = select("[data-planner-view-route]");
+    const routeExitViewButton = select("[data-route-exit-view]");
     let referenceSearchTimer = 0;
     let plannerPickupTimer = 0;
 
@@ -1215,6 +1299,14 @@
 
     if (plannerViewDestinationButton instanceof HTMLButtonElement) {
       plannerViewDestinationButton.addEventListener("click", () => viewPlannerMarket("destination"));
+    }
+
+    if (plannerViewRouteButton instanceof HTMLButtonElement) {
+      plannerViewRouteButton.addEventListener("click", viewPlannerRoute);
+    }
+
+    if (routeExitViewButton instanceof HTMLButtonElement) {
+      routeExitViewButton.addEventListener("click", () => setRouteViewingMode(false));
     }
 
     window.addEventListener("petdb:use-system-in-planner", (event) => {

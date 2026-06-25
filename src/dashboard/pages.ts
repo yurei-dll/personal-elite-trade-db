@@ -322,6 +322,7 @@ function renderGalaxyMapSection(): string {
             <p class="route-selected" data-route-selected>No system selected.</p>
           </aside>
           <div class="route-map-frame">
+            <button type="button" class="route-exit-button" data-route-exit-view hidden>Exit route view</button>
             <canvas data-route-canvas hidden aria-label="3D view of nearby systems"></canvas>
             <div class="route-hover-label" data-route-hover hidden></div>
             <div class="route-map-placeholder">3D map is disabled</div>

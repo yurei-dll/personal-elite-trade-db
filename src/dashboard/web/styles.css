@@ -608,6 +608,19 @@ canvas[data-inbound-chart] {
   overflow: hidden;
   position: relative;
 }
+.route-exit-button {
+  background: rgba(17, 20, 28, 0.92);
+  border-color: rgba(72, 215, 255, 0.5);
+  font-size: 0.82rem;
+  padding: 0.5rem 0.75rem;
+  position: absolute;
+  right: 0.75rem;
+  top: 0.75rem;
+  z-index: 4;
+}
+.route-map-frame.route-viewing {
+  border-color: rgba(72, 215, 255, 0.55);
+}
 canvas[data-route-canvas] {
   display: block;
   height: 28rem;
