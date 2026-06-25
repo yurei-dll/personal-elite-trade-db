@@ -10,6 +10,7 @@
     enabled: false,
     enabling: false,
     group: undefined,
+    gridLabels: undefined,
     guideLines: undefined,
     hoveredSystem: undefined,
     isDragging: false,
@@ -22,6 +23,8 @@
     scene: undefined,
     searchResults: [],
     searchToken: 0,
+    selectedSystem: undefined,
+    systemLabels: undefined,
     systems: [],
     three: undefined,
   };
@@ -920,6 +923,52 @@
     }
   }
 
+  function setSelectedRouteSystem(system) {
+    state.selectedSystem = system;
+
+    const name = select("[data-route-selection-name]");
+    const coordinates = select("[data-route-selection-coordinates]");
+    const distance = select("[data-route-selection-distance]");
+    const openButton = select("[data-route-open-selected]");
+
+    if (name) {
+      name.textContent = system?.name || "No system selected";
+    }
+
+    if (coordinates) {
+      coordinates.textContent = system
+        ? [system.x, system.y, system.z].map(formatNumber).join(", ")
+        : "--";
+    }
+
+    if (distance) {
+      distance.textContent = typeof system?.distance === "number"
+        ? formatNumber(system.distance) + " ly"
+        : "--";
+    }
+
+    if (openButton instanceof HTMLButtonElement) {
+      openButton.disabled = !system;
+    }
+  }
+
+  function openSelectedRouteSystem() {
+    const system = state.selectedSystem;
+
+    if (!system) {
+      setStatus("Select a system on the map first.");
+      return;
+    }
+
+    activateTab("market-browser");
+    window.dispatchEvent(new CustomEvent("petdb:system-selected", {
+      detail: {
+        id: system.id,
+        name: system.name,
+      },
+    }));
+  }
+
   function setHoverSystem(system, event, canvas) {
     const hover = select("[data-route-hover]");
 
@@ -966,7 +1015,6 @@
 
   async function enableRoutePlanner() {
     const canvas = select("[data-route-canvas]");
-    const enableButton = select("[data-route-enable]");
     const loadButton = select("[data-route-load]");
 
     if (!(canvas instanceof HTMLCanvasElement)) {
@@ -980,20 +1028,10 @@
     state.enabling = true;
     setStatus("Loading 3D renderer...");
 
-    if (enableButton instanceof HTMLButtonElement) {
-      enableButton.disabled = true;
-      enableButton.textContent = "Loading 3D map...";
-    }
-
     try {
       state.three = await getThree();
     } catch (error) {
       state.enabling = false;
-
-      if (enableButton instanceof HTMLButtonElement) {
-        enableButton.disabled = false;
-        enableButton.textContent = "Enable 3D map";
-      }
 
       throw error;
     }
@@ -1001,11 +1039,6 @@
     state.enabled = true;
     state.enabling = false;
     canvas.hidden = false;
-
-    if (enableButton instanceof HTMLButtonElement) {
-      enableButton.disabled = true;
-      enableButton.textContent = "3D map enabled";
-    }
 
     if (loadButton instanceof HTMLButtonElement) {
       loadButton.disabled = state.routeViewingMode;
@@ -1145,6 +1178,9 @@
 
     const result = await response.json();
     state.systems = Array.isArray(result.systems) ? result.systems : [];
+    if (state.selectedSystem && !state.systems.some((system) => system.id === state.selectedSystem?.id)) {
+      setSelectedRouteSystem(undefined);
+    }
     renderSystems(origin);
     setStatus("Showing " + formatNumber(state.systems.length) + " nearest systems.");
   }
@@ -1168,6 +1204,9 @@
       state.guideLines = undefined;
     }
 
+    clearGridLabels();
+    clearSystemLabels();
+
     if (state.systems.length === 0) {
       setStatus("No systems found near that reference point.");
       return;
@@ -1176,6 +1215,7 @@
     const three = state.three;
     const maxDistance = Math.max(1, ...state.systems.map((system) => Number(system.distance) || 0));
     const scale = Math.min(8, 140 / maxDistance);
+    renderGridLabels(scale);
     const positions = new Float32Array(state.systems.length * 3);
     const colors = new Float32Array(state.systems.length * 3);
     const guideLinePositions = new Float32Array(state.systems.length * 6);
@@ -1211,7 +1251,7 @@
     const material = new three.ShaderMaterial({
       vertexColors: true,
       uniforms: {
-        baseSize: { value: 12 },
+        baseSize: { value: 10 },
       },
       vertexShader: `
         uniform float baseSize;
@@ -1221,7 +1261,7 @@
           vColor = color;
           vec4 modelViewPosition = modelViewMatrix * vec4(position, 1.0);
           gl_Position = projectionMatrix * modelViewPosition;
-          gl_PointSize = clamp(baseSize * (260.0 / -modelViewPosition.z), 3.0, 8.0);
+          gl_PointSize = clamp(baseSize * (260.0 / -modelViewPosition.z), 2.5, 7.0);
         }
       `,
       fragmentShader: `
@@ -1238,21 +1278,240 @@
 
     state.guideLines = new three.LineSegments(guideLineGeometry, guideLineMaterial);
     state.points = new three.Points(geometry, material);
+    state.systemLabels = createSystemLabels(three, positions);
     state.group.add(state.guideLines);
     state.group.add(state.points);
+    state.group.add(state.systemLabels);
+    updateSystemLabelVisibility();
+  }
+
+  function clearSystemLabels() {
+    if (!state.systemLabels || !state.group) {
+      return;
+    }
+
+    state.group.remove(state.systemLabels);
+    disposeLabelGroup(state.systemLabels);
+    state.systemLabels = undefined;
+  }
+
+  function createSystemLabels(three, positions) {
+    const labels = new three.Group();
+
+    state.systems.forEach((system, index) => {
+      const offset = index * 3;
+      labels.add(createSystemLabelSprite(
+        three,
+        system.name || "Unknown system",
+        positions[offset],
+        positions[offset + 1],
+        positions[offset + 2],
+      ));
+    });
+
+    return labels;
+  }
+
+  function createSystemLabelSprite(three, text, x, y, z) {
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    const label = String(text).slice(0, 42);
+
+    canvas.width = 320;
+    canvas.height = 72;
+
+    if (context) {
+      context.font = "600 24px system-ui, sans-serif";
+      const metrics = context.measureText(label);
+      const textWidth = Math.min(canvas.width - 24, Math.ceil(metrics.width));
+      context.fillStyle = "rgba(8, 9, 13, 0.72)";
+      context.fillRect((canvas.width - textWidth - 20) / 2, 12, textWidth + 20, 44);
+      context.strokeStyle = "rgba(127, 135, 148, 0.38)";
+      context.strokeRect((canvas.width - textWidth - 20) / 2, 12, textWidth + 20, 44);
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      context.fillStyle = "rgba(220, 235, 242, 0.92)";
+      context.fillText(label, canvas.width / 2, canvas.height / 2);
+    }
+
+    const texture = new three.CanvasTexture(canvas);
+    const material = new three.SpriteMaterial({
+      depthTest: false,
+      map: texture,
+      opacity: 0.9,
+      transparent: true,
+    });
+    const sprite = new three.Sprite(material);
+
+    sprite.position.set(x, y + 5, z);
+    sprite.renderOrder = 3;
+    sprite.scale.set(36, 8.1, 1);
+    sprite.userData.labelBounds = {
+      height: 20,
+      width: Math.min(160, Math.max(54, label.length * 7.5 + 18)),
+    };
+
+    return sprite;
+  }
+
+  function clearGridLabels() {
+    if (!state.gridLabels || !state.group) {
+      return;
+    }
+
+    state.group.remove(state.gridLabels);
+    disposeLabelGroup(state.gridLabels);
+    state.gridLabels = undefined;
+  }
+
+  function disposeLabelGroup(group) {
+    group.traverse((node) => {
+      if (node.material?.map) {
+        node.material.map.dispose();
+      }
+
+      if (node.material) {
+        node.material.dispose();
+      }
+    });
+  }
+
+  function renderGridLabels(scale) {
+    if (!state.three || !state.group) {
+      return;
+    }
+
+    const three = state.three;
+    const labels = new three.Group();
+    const gridHalfSize = 130;
+    const gridDivisions = 8;
+    const gridStep = gridHalfSize / gridDivisions;
+
+    for (let index = -gridDivisions; index <= gridDivisions; index += 1) {
+      if (index === 0) {
+        continue;
+      }
+
+      const displayPosition = index * gridStep;
+      const lightYears = displayPosition / scale;
+
+      labels.add(createGridLabelSprite(three, formatMeasurementLabel("X", lightYears), displayPosition, 0, -gridHalfSize - 10));
+      labels.add(createGridLabelSprite(three, formatMeasurementLabel("Z", lightYears), -gridHalfSize - 10, 0, displayPosition));
+    }
+
+    state.gridLabels = labels;
+    state.group.add(labels);
+  }
+
+  function createGridLabelSprite(three, text, x, y, z) {
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+
+    canvas.width = 192;
+    canvas.height = 64;
+
+    if (context) {
+      context.font = "600 24px system-ui, sans-serif";
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      context.fillStyle = "rgba(127, 135, 148, 0.92)";
+      context.fillText(text, canvas.width / 2, canvas.height / 2);
+    }
+
+    const texture = new three.CanvasTexture(canvas);
+    const material = new three.SpriteMaterial({
+      depthTest: false,
+      map: texture,
+      opacity: 0.82,
+      transparent: true,
+    });
+    const sprite = new three.Sprite(material);
+
+    sprite.position.set(x, y + 2, z);
+    sprite.scale.set(24, 8, 1);
+    sprite.renderOrder = 2;
+
+    return sprite;
+  }
+
+  function formatMeasurementLabel(axis, value) {
+    const rounded = Math.round(value);
+    const sign = rounded > 0 ? "+" : "";
+
+    return axis + " " + sign + formatNumber(rounded) + " ly";
+  }
+
+  function updateSystemLabelVisibility() {
+    const canvas = select("[data-route-canvas]");
+
+    if (!(canvas instanceof HTMLCanvasElement) || !state.camera || !state.systemLabels || !state.three) {
+      return;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    const visibleBounds = [];
+    const worldPosition = new state.three.Vector3();
+    const projectedPosition = new state.three.Vector3();
+    const labels = [...state.systemLabels.children]
+      .map((label) => {
+        label.getWorldPosition(worldPosition);
+        projectedPosition.copy(worldPosition).project(state.camera);
+
+        return {
+          depth: state.camera.position.distanceTo(worldPosition),
+          label,
+          projectedX: projectedPosition.x,
+          projectedY: projectedPosition.y,
+          projectedZ: projectedPosition.z,
+          x: (projectedPosition.x * 0.5 + 0.5) * rect.width,
+          y: (-projectedPosition.y * 0.5 + 0.5) * rect.height,
+        };
+      })
+      .filter((entry) => (
+        entry.projectedX >= -1
+        && entry.projectedX <= 1
+        && entry.projectedY >= -1
+        && entry.projectedY <= 1
+        && entry.projectedZ >= -1
+        && entry.projectedZ <= 1
+      ))
+      .sort((left, right) => left.depth - right.depth);
+
+    state.systemLabels.children.forEach((label) => {
+      label.visible = false;
+    });
+
+    labels.forEach((entry) => {
+      const bounds = entry.label.userData.labelBounds || { height: 20, width: 80 };
+      const candidate = {
+        bottom: entry.y + bounds.height / 2,
+        left: entry.x - bounds.width / 2,
+        right: entry.x + bounds.width / 2,
+        top: entry.y - bounds.height / 2,
+      };
+
+      if (visibleBounds.some((existing) => rectanglesOverlap(candidate, existing))) {
+        return;
+      }
+
+      entry.label.visible = true;
+      visibleBounds.push(candidate);
+    });
+  }
+
+  function rectanglesOverlap(left, right) {
+    return left.left < right.right
+      && left.right > right.left
+      && left.top < right.bottom
+      && left.bottom > right.top;
   }
 
   function selectSystemAt(event, canvas) {
     const system = readSystemAt(event, canvas);
 
     if (system) {
-      activateTab("market-browser");
-      window.dispatchEvent(new CustomEvent("petdb:system-selected", {
-        detail: {
-          id: system.id,
-          name: system.name,
-        },
-      }));
+      setSelectedRouteSystem(system);
+      setStatus("Selected " + system.name + ".");
     }
   }
 
@@ -1368,6 +1627,7 @@
     state.animationFrame = window.requestAnimationFrame(animateRoutePlanner);
 
     if (state.renderer && state.scene && state.camera) {
+      updateSystemLabelVisibility();
       state.renderer.render(state.scene, state.camera);
     }
   }
@@ -1415,8 +1675,8 @@
       tab.addEventListener("click", () => activateTab(tab.getAttribute("data-dashboard-tab") || "dashboard"));
     });
 
-    const enableButton = select("[data-route-enable]");
     const loadButton = select("[data-route-load]");
+    const openSelectedRouteButton = select("[data-route-open-selected]");
     const routeLimitSelect = select("[data-route-limit]");
     const referenceInput = select("[data-route-reference-search]");
     const setReferenceButton = select("[data-route-set-reference]");
@@ -1440,18 +1700,16 @@
     let referenceSearchTimer = 0;
     let plannerPickupTimer = 0;
 
-    if (enableButton instanceof HTMLButtonElement) {
-      enableButton.addEventListener("click", () => {
-        enableRoutePlanner().catch((error) => setStatus(error instanceof Error ? error.message : String(error)));
-      });
-    }
-
     enableRoutePlanner().catch((error) => setStatus(error instanceof Error ? error.message : String(error)));
 
     if (loadButton instanceof HTMLButtonElement) {
       loadButton.addEventListener("click", () => {
         loadSystems().catch((error) => setStatus(error instanceof Error ? error.message : String(error)));
       });
+    }
+
+    if (openSelectedRouteButton instanceof HTMLButtonElement) {
+      openSelectedRouteButton.addEventListener("click", openSelectedRouteSystem);
     }
 
     if (routeLimitSelect instanceof HTMLSelectElement) {

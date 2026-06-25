@@ -302,12 +302,27 @@ function renderGalaxyMapSection(): string {
             <p class="eyebrow">Galaxy Map</p>
             <h2 id="galaxy-map-tab-title" data-route-map-title>Nearby Systems Map</h2>
           </div>
-          <span class="pill">3D enabled by default</span>
+          <span class="pill">Interactive map</span>
         </div>
         <div class="route-layout">
           <aside class="route-controls">
-            <p class="muted">The WebGL map loads automatically for the local 3D view.</p>
-            <button type="button" data-route-enable>Enable 3D map</button>
+            <section class="route-selection-panel" aria-live="polite">
+              <div>
+                <span class="mini-label">Selected system</span>
+                <strong data-route-selection-name>No system selected</strong>
+              </div>
+              <dl>
+                <div>
+                  <dt>Coordinates</dt>
+                  <dd data-route-selection-coordinates>--</dd>
+                </div>
+                <div>
+                  <dt>Reference distance</dt>
+                  <dd data-route-selection-distance>--</dd>
+                </div>
+              </dl>
+              <button type="button" class="secondary" data-route-open-selected disabled>Open in new tab</button>
+            </section>
             <div class="route-control-grid">
               <label>
                 <span>System count</span>

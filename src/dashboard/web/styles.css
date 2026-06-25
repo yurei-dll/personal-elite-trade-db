@@ -622,6 +622,46 @@ canvas[data-inbound-chart] {
   gap: 1rem;
   align-content: start;
 }
+.route-selection-panel {
+  background: var(--panel-strong);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 0.85rem;
+  padding: 0.9rem;
+}
+.route-selection-panel strong {
+  color: var(--text);
+  display: block;
+  font-size: 1.05rem;
+  margin-top: 0.2rem;
+  overflow-wrap: anywhere;
+}
+.mini-label {
+  color: var(--muted);
+  display: block;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+.route-selection-panel dl {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0;
+}
+.route-selection-panel div {
+  min-width: 0;
+}
+.route-selection-panel dt {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+.route-selection-panel dd {
+  color: var(--text);
+  margin: 0.18rem 0 0;
+}
+.route-selection-panel button {
+  width: 100%;
+}
 .route-control-grid {
   display: grid;
   gap: 0.75rem;
