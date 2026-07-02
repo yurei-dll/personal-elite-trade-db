@@ -422,13 +422,13 @@ function renderMarketBrowserSection(): string {
               <table>
                 <thead>
                   <tr>
-                    <th>Station</th>
-                    <th>Type</th>
-                    <th>Pad</th>
-                    <th>Arrival</th>
-                    <th>Imported</th>
-                    <th>Exported</th>
-                    <th>Updated</th>
+                    <th data-market-sort="name">Station</th>
+                    <th data-market-sort="type">Type</th>
+                    <th data-market-sort="maxLandingPadSize">Pad</th>
+                    <th data-market-sort="distanceToArrival">Arrival</th>
+                    <th data-market-sort="boughtCommodityCount">Imported</th>
+                    <th data-market-sort="soldCommodityCount">Exported</th>
+                    <th data-market-sort="updatedAt">Updated</th>
                   </tr>
                 </thead>
                 <tbody data-market-stations>
@@ -483,13 +483,13 @@ function renderStationBrowserSection(): string {
             <table>
               <thead>
                 <tr>
-                  <th>Commodity</th>
-                  <th>Category</th>
-                  <th>Buys For</th>
-                  <th>Sells For</th>
-                  <th>Demand</th>
-                  <th>Stock</th>
-                  <th>Collected</th>
+                  <th data-station-sort="name">Commodity</th>
+                  <th data-station-sort="category">Category</th>
+                  <th data-station-sort="stationBuyPrice">Buys For</th>
+                  <th data-station-sort="stationSellPrice">Sells For</th>
+                  <th data-station-sort="demand">Demand</th>
+                  <th data-station-sort="stock">Stock</th>
+                  <th data-station-sort="collectedAt">Collected</th>
                 </tr>
               </thead>
               <tbody data-station-commodities>

@@ -1,8 +1,11 @@
 (() => {
   const state = {
+    commodities: [],
     searchResults: [],
     searchToken: 0,
+    sort: { direction: "asc", key: "name" },
   };
+  const collator = new Intl.Collator("en-US", { numeric: true, sensitivity: "base" });
 
   function select(selector) {
     return document.querySelector(selector);
@@ -111,6 +114,7 @@
     }
 
     setStatus(formatNumber(commodities.length) + " commodities");
+    state.commodities = commodities;
     renderSummary(station, commodities.length);
     renderCommodities(commodities);
   }
@@ -178,15 +182,17 @@
       return;
     }
 
-    body.replaceChildren(...commodities.map((commodity) => {
+    const sortedCommodities = sortRows(commodities, state.sort);
+
+    body.replaceChildren(...sortedCommodities.map((commodity) => {
       const row = document.createElement("tr");
       row.append(
         createElement("td", {}, commodity.name || "Unknown"),
         createElement("td", {}, commodity.category || "unknown"),
         createElement("td", {}, formatCredits(commodity.stationBuyPrice)),
         createElement("td", {}, formatCredits(commodity.stationSellPrice)),
-        createElement("td", {}, formatQuantity(commodity.demand, commodity.demandLevel)),
-        createElement("td", {}, formatQuantity(commodity.stock, commodity.stockLevel)),
+        createElement("td", {}, renderQuantity(commodity.demand, commodity.demandLevel)),
+        createElement("td", {}, renderQuantity(commodity.stock, commodity.stockLevel)),
         createElement("td", {}, formatDate(commodity.collectedAt)),
       );
       return row;
@@ -196,6 +202,8 @@
   function renderEmpty(message) {
     const summary = select("[data-station-summary]");
     const commodities = select("[data-station-commodities]");
+
+    state.commodities = [];
 
     if (summary) {
       summary.replaceChildren(createElement("p", { className: "muted" }, message));
@@ -212,6 +220,73 @@
     const row = document.createElement("tr");
     row.append(cell);
     return row;
+  }
+
+  function sortRows(rows, sort) {
+    return [...rows].sort((left, right) => compareValues(
+      readSortValue(left, sort.key),
+      readSortValue(right, sort.key),
+      sort.direction,
+    ));
+  }
+
+  function readSortValue(row, key) {
+    const value = row[key];
+
+    if ((key === "stationBuyPrice" || key === "stationSellPrice") && !(value > 0)) {
+      return null;
+    }
+
+    return value;
+  }
+
+  function compareValues(left, right, direction) {
+    const leftMissing = left === null || left === undefined || left === "";
+    const rightMissing = right === null || right === undefined || right === "";
+
+    if (leftMissing || rightMissing) {
+      return leftMissing === rightMissing ? 0 : leftMissing ? 1 : -1;
+    }
+
+    const comparison = typeof left === "number" && typeof right === "number"
+      ? left - right
+      : collator.compare(String(left), String(right));
+    return direction === "asc" ? comparison : -comparison;
+  }
+
+  function initializeSorting() {
+    document.querySelectorAll("[data-station-sort]").forEach((header) => {
+      const key = header.getAttribute("data-station-sort");
+      const label = header.textContent || "";
+      const button = createElement("button", { className: "table-sort-button" }, [
+        createElement("span", {}, label),
+        createElement("span", { className: "table-sort-arrow" }),
+      ]);
+
+      button.type = "button";
+      button.addEventListener("click", () => {
+        state.sort = {
+          direction: state.sort.key === key && state.sort.direction === "asc" ? "desc" : "asc",
+          key,
+        };
+        updateSortHeaders();
+        renderCommodities(state.commodities);
+      });
+      header.replaceChildren(button);
+    });
+    updateSortHeaders();
+  }
+
+  function updateSortHeaders() {
+    document.querySelectorAll("[data-station-sort]").forEach((header) => {
+      const isActive = header.getAttribute("data-station-sort") === state.sort.key;
+      const arrow = header.querySelector(".table-sort-arrow");
+      header.setAttribute("aria-sort", isActive ? (state.sort.direction === "asc" ? "ascending" : "descending") : "none");
+
+      if (arrow) {
+        arrow.textContent = isActive ? (state.sort.direction === "asc" ? "↑" : "↓") : "";
+      }
+    });
   }
 
   function createElement(tagName, options, children) {
@@ -237,18 +312,30 @@
     return station.name + " | " + station.systemName;
   }
 
-  function formatQuantity(value, level) {
-    const parts = [];
+  function renderQuantity(value, level) {
+    const quantity = createElement("span", { className: "market-quantity" });
+    const normalizedLevel = typeof level === "string" ? level.toLowerCase() : "";
+
+    if (["none", "low", "medium", "high"].includes(normalizedLevel)) {
+      const icon = document.createElement("img");
+      icon.alt = normalizedLevel;
+      icon.className = "market-level-icon";
+      icon.src = `/dashboard/assets/img/${normalizedLevel}.png`;
+      icon.title = normalizedLevel[0].toUpperCase() + normalizedLevel.slice(1);
+      quantity.append(icon);
+    } else if (level) {
+      quantity.append(createElement("span", {}, level));
+    }
 
     if (typeof value === "number") {
-      parts.push(formatNumber(value));
+      quantity.append(createElement("span", {}, formatNumber(value)));
     }
 
-    if (level) {
-      parts.push(level);
+    if (!quantity.hasChildNodes()) {
+      quantity.append("-");
     }
 
-    return parts.length > 0 ? parts.join(" ") : "-";
+    return quantity;
   }
 
   function formatNumber(value) {
@@ -292,6 +379,8 @@
     const input = select("[data-station-search]");
     const loadButton = select("[data-station-load]");
     let searchTimer = 0;
+
+    initializeSorting();
 
     if (input instanceof HTMLInputElement) {
       input.addEventListener("input", () => {

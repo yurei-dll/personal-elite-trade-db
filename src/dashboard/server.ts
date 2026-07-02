@@ -18,6 +18,7 @@ import {
   THREE_CORE_SCRIPT,
   THREE_MODULE_SCRIPT,
   readDashboardWebAsset,
+  readDashboardWebBinaryAsset,
 } from "./assets";
 import {
   renderDashboardPage,
@@ -297,6 +298,15 @@ export async function startDashboardServer(
       "Content-Type": "text/javascript; charset=utf-8",
     });
   });
+
+  for (const level of ["none", "low", "medium", "high"] as const) {
+    app.get(`/dashboard/assets/img/${level}.png`, (context) => {
+      return context.body(readDashboardWebBinaryAsset(`img/${level}.png`), 200, {
+        "Cache-Control": "public, max-age=31536000, immutable",
+        "Content-Type": "image/png",
+      });
+    });
+  }
 
   app.get("/dashboard/assets/three.module.js", (context) => {
     return context.body(THREE_MODULE_SCRIPT, 200, {

@@ -3,7 +3,10 @@
     currentSystemId: undefined,
     searchResults: [],
     searchToken: 0,
+    sort: { direction: "asc", key: "name" },
+    stations: [],
   };
+  const collator = new Intl.Collator("en-US", { numeric: true, sensitivity: "base" });
 
   function select(selector) {
     return document.querySelector(selector);
@@ -117,6 +120,7 @@
     }
 
     setStatus(formatNumber(stations.length) + " markets");
+    state.stations = stations;
     renderSummary(system, stations.length, imported.length, exported.length);
     renderStations(stations);
     renderCommodities("[data-market-bought]", imported, "No imported commodities recorded.");
@@ -180,7 +184,9 @@
       return;
     }
 
-    body.replaceChildren(...stations.map((station) => {
+    const sortedStations = sortRows(stations, state.sort);
+
+    body.replaceChildren(...sortedStations.map((station) => {
       const row = document.createElement("tr");
       const stationLink = createElement("button", { className: "station-link" }, station.name || "Unknown");
       stationLink.type = "button";
@@ -228,6 +234,8 @@
     const summary = select("[data-market-summary]");
     const stations = select("[data-market-stations]");
 
+    state.stations = [];
+
     if (summary) {
       summary.replaceChildren(createElement("p", { className: "muted" }, message));
     }
@@ -266,6 +274,59 @@
     const row = document.createElement("tr");
     row.append(cell);
     return row;
+  }
+
+  function sortRows(rows, sort) {
+    return [...rows].sort((left, right) => compareValues(left[sort.key], right[sort.key], sort.direction));
+  }
+
+  function compareValues(left, right, direction) {
+    const leftMissing = left === null || left === undefined || left === "";
+    const rightMissing = right === null || right === undefined || right === "";
+
+    if (leftMissing || rightMissing) {
+      return leftMissing === rightMissing ? 0 : leftMissing ? 1 : -1;
+    }
+
+    const comparison = typeof left === "number" && typeof right === "number"
+      ? left - right
+      : collator.compare(String(left), String(right));
+    return direction === "asc" ? comparison : -comparison;
+  }
+
+  function initializeSorting() {
+    document.querySelectorAll("[data-market-sort]").forEach((header) => {
+      const key = header.getAttribute("data-market-sort");
+      const label = header.textContent || "";
+      const button = createElement("button", { className: "table-sort-button" }, [
+        createElement("span", {}, label),
+        createElement("span", { className: "table-sort-arrow" }),
+      ]);
+
+      button.type = "button";
+      button.addEventListener("click", () => {
+        state.sort = {
+          direction: state.sort.key === key && state.sort.direction === "asc" ? "desc" : "asc",
+          key,
+        };
+        updateSortHeaders();
+        renderStations(state.stations);
+      });
+      header.replaceChildren(button);
+    });
+    updateSortHeaders();
+  }
+
+  function updateSortHeaders() {
+    document.querySelectorAll("[data-market-sort]").forEach((header) => {
+      const isActive = header.getAttribute("data-market-sort") === state.sort.key;
+      const arrow = header.querySelector(".table-sort-arrow");
+      header.setAttribute("aria-sort", isActive ? (state.sort.direction === "asc" ? "ascending" : "descending") : "none");
+
+      if (arrow) {
+        arrow.textContent = isActive ? (state.sort.direction === "asc" ? "↑" : "↓") : "";
+      }
+    });
   }
 
   function activateTab(tabName) {
@@ -329,6 +390,8 @@
     const includeFleetCarriersInput = select("[data-market-include-fleet-carriers]");
     const includePlanetaryInput = select("[data-market-include-planetary]");
     let searchTimer = 0;
+
+    initializeSorting();
 
     if (input instanceof HTMLInputElement) {
       input.addEventListener("input", () => {
