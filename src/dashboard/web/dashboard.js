@@ -2,6 +2,7 @@
   const storageKey = "petdb.dashboard.refreshSeconds";
   const defaultRefreshSeconds = "30";
   let refreshTimer;
+  let inboundMessageSeries = { points: [], total: 0, windowMinutes: 0 };
 
   function readRefreshSeconds(select) {
     const storedValue = window.localStorage.getItem(storageKey);
@@ -64,7 +65,8 @@
       return;
     }
 
-    drawInboundMessages(canvas, await response.json());
+    inboundMessageSeries = await response.json();
+    drawInboundMessages(canvas, inboundMessageSeries);
   }
 
   function drawInboundMessages(canvas, series) {
@@ -217,6 +219,19 @@
 
   window.addEventListener("DOMContentLoaded", () => {
     const select = document.querySelector("[data-refresh-rate]");
+    const inboundChart = document.querySelector("[data-inbound-chart]");
+
+    if (inboundChart instanceof HTMLCanvasElement) {
+      drawInboundMessages(inboundChart, inboundMessageSeries);
+
+      if (typeof ResizeObserver === "function") {
+        const chartResizeObserver = new ResizeObserver(() => {
+          drawInboundMessages(inboundChart, inboundMessageSeries);
+        });
+
+        chartResizeObserver.observe(inboundChart);
+      }
+    }
 
     if (!select) {
       return;

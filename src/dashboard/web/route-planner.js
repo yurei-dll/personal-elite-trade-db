@@ -19,6 +19,7 @@
     raycaster: undefined,
     referenceSystem: undefined,
     renderer: undefined,
+    resizeObserver: undefined,
     routeLine: undefined,
     routePreviousReference: undefined,
     routeToView: undefined,
@@ -1163,6 +1164,10 @@
     document.querySelectorAll("[data-tab-panel]").forEach((panel) => {
       panel.hidden = panel.getAttribute("data-tab-panel") !== tabName;
     });
+
+    if (tabName === "galaxy-map") {
+      window.requestAnimationFrame(resizeRoutePlanner);
+    }
   }
 
   function getThree() {
@@ -1280,6 +1285,12 @@
     canvas.addEventListener("pointerleave", () => setHoverSystem(undefined));
     canvas.addEventListener("click", (event) => selectSystemAt(event, canvas));
     window.addEventListener("resize", resizeRoutePlanner);
+
+    if (typeof ResizeObserver === "function") {
+      state.resizeObserver = new ResizeObserver(resizeRoutePlanner);
+      state.resizeObserver.observe(canvas);
+    }
+
     resizeRoutePlanner();
     animateRoutePlanner();
   }
