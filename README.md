@@ -238,4 +238,6 @@ CREATE INDEX station_commodities_collected_at_idx
 
 ## Credits
 
-Elite: Dangerous is created by Frontier Developments. This project is an unofficial personal tool.
+Elite: Dangerous is created by Frontier Developments. This project is an unofficial personal tool.\
+
+Icons by Icons8
