@@ -351,6 +351,7 @@ export function routePlannerBestTradeRouteQuery(options: {
     WHERE destination_stations.has_market = true
       AND destination_stations.system_id <> origin.id
       AND destination_markets.station_buy_price > 0
+      AND destination_markets.station_buy_price > source_offers.station_sell_price
       AND ${buildDestinationDemandPredicate(options.requireDestinationDemand)}
       AND ${buildLandingPadPredicate("destination_stations", options.padSize)}
       AND ${buildFleetCarrierPredicate("destination_stations", options.includeFleetCarriers)}
@@ -361,11 +362,12 @@ export function routePlannerBestTradeRouteQuery(options: {
         power(destination_systems.z - origin.z, 2)
       ) <= $2::double precision
     ORDER BY
-      destination_markets.station_buy_price DESC NULLS LAST,
-      destination_markets.demand DESC NULLS LAST,
       profit DESC NULLS LAST,
+      destination_markets.demand DESC NULLS LAST,
       distance ASC,
-      destination_stations.distance_to_arrival ASC NULLS LAST
+      destination_markets.station_buy_price DESC NULLS LAST,
+      destination_stations.distance_to_arrival ASC NULLS LAST,
+      source_offers.distance_to_arrival ASC NULLS LAST
     LIMIT 1
   `;
 }

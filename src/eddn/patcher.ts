@@ -20,7 +20,7 @@ export interface QueuedEddnMarketPatches {
 interface EddnMarketPatchRows {
   readonly commodities: readonly CommodityRow[];
   readonly stations: readonly StationRow[];
-  readonly stationCommodities: readonly StationCommodityRow[];
+  readonly stationCommodities: readonly EddnStationCommodityRow[];
 }
 
 interface StationRow {
@@ -30,11 +30,16 @@ interface StationRow {
   readonly updatedAt: string;
 }
 
+interface EddnStationCommodityRow extends StationCommodityRow {
+  readonly stationName: string;
+  readonly systemName: string;
+}
+
 export class EddnMarketPatchBuffer {
   private readonly batchSize: number;
   private readonly commodities = new Map<string, CommodityRow>();
-  private readonly stations = new Map<number, StationRow>();
-  private readonly stationCommodities = new Map<string, StationCommodityRow>();
+  private readonly stations = new Map<string, StationRow>();
+  private readonly stationCommodities = new Map<string, EddnStationCommodityRow>();
 
   public constructor(options: EddnMarketPatchBufferOptions = {}) {
     this.batchSize = options.batchSize ?? DEFAULT_EDDN_PATCH_BATCH_SIZE;
@@ -52,7 +57,10 @@ export class EddnMarketPatchBuffer {
     }
 
     if (parsedRows.station?.systemName && snapshot.collectedAt) {
-      this.stations.set(parsedRows.station.id, {
+      this.stations.set(createStationKey(
+        parsedRows.station.systemName,
+        parsedRows.station.name,
+      ), {
         id: parsedRows.station.id,
         name: parsedRows.station.name,
         systemName: parsedRows.station.systemName,
@@ -61,9 +69,21 @@ export class EddnMarketPatchBuffer {
     }
 
     for (const stationCommodity of parsedRows.stationCommodities) {
+      if (!parsedRows.station?.systemName) {
+        continue;
+      }
+
       this.stationCommodities.set(
-        createStationCommodityKey(stationCommodity),
-        stationCommodity,
+        createStationCommodityKey(
+          parsedRows.station.systemName,
+          parsedRows.station.name,
+          stationCommodity.commodityId,
+        ),
+        {
+          ...stationCommodity,
+          stationName: parsedRows.station.name,
+          systemName: parsedRows.station.systemName,
+        },
       );
     }
 
@@ -170,7 +190,7 @@ async function applyEddnMarketPatch(
             updated_at
           )
           SELECT
-            patch.id,
+            COALESCE(matching_station.id, patch.id),
             systems.id,
             patch.name,
             NULL,
@@ -182,10 +202,15 @@ async function applyEddnMarketPatch(
           FROM patch_rows patch
           JOIN systems
             ON systems.name = patch.system_name
-          ON CONFLICT (id) DO UPDATE
+          LEFT JOIN stations matching_station
+            ON matching_station.system_id = systems.id
+           AND matching_station.name = patch.name
+          LEFT JOIN stations id_collision
+            ON id_collision.id = patch.id
+          WHERE matching_station.id IS NOT NULL
+             OR id_collision.id IS NULL
+          ON CONFLICT (system_id, name) DO UPDATE
           SET
-            system_id = EXCLUDED.system_id,
-            name = EXCLUDED.name,
             has_market = true,
             updated_at = EXCLUDED.updated_at
         `,
@@ -213,7 +238,9 @@ async function applyEddnMarketPatch(
               $7::bigint[],
               $8::text[],
               $9::timestamp with time zone[],
-              $10::text[]
+              $10::text[],
+              $11::text[],
+              $12::text[]
             ) AS patch(
               station_id,
               commodity_id,
@@ -224,7 +251,9 @@ async function applyEddnMarketPatch(
               stock,
               stock_level,
               collected_at,
-              source
+              source,
+              station_name,
+              system_name
             )
           )
           INSERT INTO station_commodities (
@@ -241,7 +270,7 @@ async function applyEddnMarketPatch(
             source
           )
           SELECT
-            patch.station_id,
+            stations.id,
             patch.commodity_id,
             patch.station_sell_price,
             patch.station_buy_price,
@@ -253,8 +282,11 @@ async function applyEddnMarketPatch(
             now(),
             patch.source
           FROM patch_rows patch
+          JOIN systems
+            ON systems.name = patch.system_name
           JOIN stations
-            ON stations.id = patch.station_id
+            ON stations.system_id = systems.id
+           AND stations.name = patch.station_name
           JOIN commodities
             ON commodities.id = patch.commodity_id
           ON CONFLICT (station_id, commodity_id) DO UPDATE
@@ -280,6 +312,8 @@ async function applyEddnMarketPatch(
           rows.stationCommodities.map((commodity) => commodity.stockLevel),
           rows.stationCommodities.map((commodity) => commodity.collectedAt),
           rows.stationCommodities.map((commodity) => commodity.source),
+          rows.stationCommodities.map((commodity) => commodity.stationName),
+          rows.stationCommodities.map((commodity) => commodity.systemName),
         ],
       );
     }
@@ -310,6 +344,14 @@ function takeAllRows<Row>(rows: Map<string | number, Row>): Row[] {
   return takenRows;
 }
 
-function createStationCommodityKey(row: StationCommodityRow): string {
-  return `${row.stationId}:${row.commodityId}`;
+function createStationKey(systemName: string, stationName: string): string {
+  return `${systemName}\u0000${stationName}`;
+}
+
+function createStationCommodityKey(
+  systemName: string,
+  stationName: string,
+  commodityId: string,
+): string {
+  return `${createStationKey(systemName, stationName)}\u0000${commodityId}`;
 }
