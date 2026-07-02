@@ -317,7 +317,7 @@ function renderGalaxyMapSection(): string {
                   <dd data-route-selection-coordinates>--</dd>
                 </div>
                 <div>
-                  <dt>Reference distance</dt>
+                  <dt>Distance from map center</dt>
                   <dd data-route-selection-distance>--</dd>
                 </div>
                 <div>
@@ -353,17 +353,16 @@ function renderGalaxyMapSection(): string {
                 </select>
               </label>
               <label class="wide-field">
-                <span>Reference system</span>
-                <input type="search" list="route-reference-results" placeholder="Search systems..." autocomplete="off" data-route-reference-search>
-                <datalist id="route-reference-results" data-route-reference-results></datalist>
+                <span>System search</span>
+                <input type="search" list="route-system-results" placeholder="Search systems..." autocomplete="off" data-route-system-search>
+                <datalist id="route-system-results" data-route-system-results></datalist>
+              </label>
+              <label class="toggle-field wide-field">
+                <input type="checkbox" data-route-show-labels checked>
+                <span>Show system labels</span>
               </label>
             </div>
-            <input type="hidden" value="0" data-route-origin-x>
-            <input type="hidden" value="0" data-route-origin-y>
-            <input type="hidden" value="0" data-route-origin-z>
-            <button type="button" class="secondary" data-route-set-reference>Set reference</button>
-            <p class="route-reference" data-route-reference>Reference: galactic origin</p>
-            <button type="button" class="secondary" data-route-load disabled>Load nearest systems</button>
+            <button type="button" class="secondary" data-route-center-system>Center on system</button>
             <p class="muted" data-route-status>Loading 3D map...</p>
           </aside>
           <div class="route-map-frame">

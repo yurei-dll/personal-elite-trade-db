@@ -694,13 +694,6 @@ canvas[data-inbound-chart] {
 .wide-field {
   grid-column: 1 / -1;
 }
-.route-reference {
-  background: var(--panel-strong);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  color: var(--text);
-  padding: 0.75rem;
-}
 .route-map-frame {
   background: #090c12;
   border: 1px solid var(--line);

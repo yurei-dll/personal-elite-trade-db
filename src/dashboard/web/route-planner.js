@@ -27,11 +27,11 @@
     dragDistance: 0,
     isDragging: false,
     isPanning: false,
+    labelsEnabled: true,
     lastPointer: { x: 0, y: 0 },
     points: undefined,
     raycaster: undefined,
-    referenceOrigin: { x: 0, y: 0, z: 0 },
-    referenceSystem: undefined,
+    mapOrigin: { x: 0, y: 0, z: 0 },
     renderer: undefined,
     resizeObserver: undefined,
     routeLine: undefined,
@@ -863,7 +863,7 @@
       title.hidden = isViewing;
     }
 
-    updateRouteReferenceControls();
+    updateRouteMapControls();
 
     if (isViewing) {
       const destinationName = route?.destination?.systemName || "route";
@@ -876,28 +876,21 @@
     loadSystems().catch((error) => setStatus(error instanceof Error ? error.message : String(error)));
   }
 
-  function updateRouteReferenceControls() {
+  function updateRouteMapControls() {
     const routeLimitSelect = select("[data-route-limit]");
-    const referenceInput = select("[data-route-reference-search]");
-    const setReferenceButton = select("[data-route-set-reference]");
-    const loadButton = select("[data-route-load]");
-
-    renderReferenceControls();
+    const systemInput = select("[data-route-system-search]");
+    const centerSystemButton = select("[data-route-center-system]");
 
     if (routeLimitSelect instanceof HTMLSelectElement) {
       routeLimitSelect.disabled = state.routeViewingMode;
     }
 
-    if (referenceInput instanceof HTMLInputElement) {
-      referenceInput.disabled = state.routeViewingMode;
+    if (systemInput instanceof HTMLInputElement) {
+      systemInput.disabled = state.routeViewingMode;
     }
 
-    if (setReferenceButton instanceof HTMLButtonElement) {
-      setReferenceButton.disabled = state.routeViewingMode;
-    }
-
-    if (loadButton instanceof HTMLButtonElement) {
-      loadButton.disabled = state.routeViewingMode || !state.enabled;
+    if (centerSystemButton instanceof HTMLButtonElement) {
+      centerSystemButton.disabled = state.routeViewingMode;
     }
   }
 
@@ -929,48 +922,6 @@
 
     if (status) {
       status.textContent = message;
-    }
-  }
-
-  function setReferenceSystem(system) {
-    state.referenceSystem = system;
-    state.referenceOrigin = {
-      x: Number(system?.x) || 0,
-      y: Number(system?.y) || 0,
-      z: Number(system?.z) || 0,
-    };
-    state.chunkCache.clear();
-    renderReferenceControls();
-  }
-
-  function renderReferenceControls() {
-    const system = state.referenceSystem;
-    const reference = select("[data-route-reference]");
-    const referenceInput = select("[data-route-reference-search]");
-    const xInput = select("[data-route-origin-x]");
-    const yInput = select("[data-route-origin-y]");
-    const zInput = select("[data-route-origin-z]");
-
-    if (xInput instanceof HTMLInputElement) {
-      xInput.value = String(state.referenceOrigin.x);
-    }
-
-    if (yInput instanceof HTMLInputElement) {
-      yInput.value = String(state.referenceOrigin.y);
-    }
-
-    if (zInput instanceof HTMLInputElement) {
-      zInput.value = String(state.referenceOrigin.z);
-    }
-
-    if (referenceInput instanceof HTMLInputElement) {
-      referenceInput.value = system?.name || "";
-    }
-
-    if (reference) {
-      reference.textContent = system
-        ? "Reference: " + system.name + " (" + formatNumber(system.x) + ", " + formatNumber(system.y) + ", " + formatNumber(system.z) + ")"
-        : "Reference: galactic origin";
     }
   }
 
@@ -1154,7 +1105,6 @@
 
   async function enableRoutePlanner() {
     const canvas = select("[data-route-canvas]");
-    const loadButton = select("[data-route-load]");
 
     if (!(canvas instanceof HTMLCanvasElement)) {
       return;
@@ -1178,10 +1128,6 @@
     state.enabled = true;
     state.enabling = false;
     canvas.hidden = false;
-
-    if (loadButton instanceof HTMLButtonElement) {
-      loadButton.disabled = state.routeViewingMode;
-    }
 
     initializeScene(canvas, state.three);
     if (state.routeViewingMode) {
@@ -1373,7 +1319,7 @@
       return;
     }
 
-    const origin = { ...state.referenceOrigin };
+    const origin = { ...state.mapOrigin };
     const limit = readLimit();
     setStatus("Loading nearest systems...");
     state.chunkCache.clear();
@@ -1537,7 +1483,7 @@
     clearSystemLabels();
 
     if (state.systems.length === 0) {
-      setStatus("No systems found near that reference point.");
+      setStatus("No systems found in this map chunk.");
       return;
     }
 
@@ -1569,14 +1515,31 @@
 
     const guideLineGeometry = new three.BufferGeometry();
     guideLineGeometry.setAttribute("position", new three.BufferAttribute(guideLinePositions, 3));
-    const guideLineMaterial = new three.LineBasicMaterial({
-      color: 0x7f8794,
-      opacity: 0.36,
+    guideLineGeometry.setAttribute("lineAlpha", new three.BufferAttribute(new Float32Array(state.systems.length * 2).fill(1), 1));
+    const guideLineMaterial = new three.ShaderMaterial({
+      vertexShader: `
+        attribute float lineAlpha;
+        varying float vLineAlpha;
+
+        void main() {
+          vLineAlpha = lineAlpha;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        varying float vLineAlpha;
+
+        void main() {
+          gl_FragColor = vec4(0.5, 0.53, 0.58, 0.36 * vLineAlpha);
+        }
+      `,
+      depthWrite: false,
       transparent: true,
     });
     const geometry = new three.BufferGeometry();
     geometry.setAttribute("position", new three.BufferAttribute(positions, 3));
     geometry.setAttribute("color", new three.BufferAttribute(colors, 3));
+    geometry.setAttribute("pointAlpha", new three.BufferAttribute(new Float32Array(state.systems.length).fill(1), 1));
     const material = new three.ShaderMaterial({
       vertexColors: true,
       uniforms: {
@@ -1584,10 +1547,13 @@
       },
       vertexShader: `
         uniform float baseSize;
+        attribute float pointAlpha;
         varying vec3 vColor;
+        varying float vPointAlpha;
 
         void main() {
           vColor = color;
+          vPointAlpha = pointAlpha;
           vec4 modelViewPosition = modelViewMatrix * vec4(position, 1.0);
           gl_Position = projectionMatrix * modelViewPosition;
           gl_PointSize = clamp(baseSize * (260.0 / -modelViewPosition.z), 2.5, 7.0);
@@ -1595,13 +1561,15 @@
       `,
       fragmentShader: `
         varying vec3 vColor;
+        varying float vPointAlpha;
 
         void main() {
           vec2 point = gl_PointCoord - vec2(0.5);
           float alpha = 1.0 - smoothstep(0.16, 0.5, length(point));
-          gl_FragColor = vec4(vColor, alpha);
+          gl_FragColor = vec4(vColor, alpha * vPointAlpha);
         }
       `,
+      depthWrite: false,
       transparent: true,
     });
 
@@ -1923,66 +1891,106 @@
   function updateSystemLabelVisibility() {
     const canvas = select("[data-route-canvas]");
 
-    if (!(canvas instanceof HTMLCanvasElement) || !state.camera || !state.systemLabels || !state.three) {
+    if (!(canvas instanceof HTMLCanvasElement) || !state.camera || !state.points || !state.systemLabels || !state.three) {
       return;
     }
 
     const rect = canvas.getBoundingClientRect();
-    const visibleBounds = [];
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
+    const coreRadius = 150;
+    const middleRadius = Math.max(coreRadius + 60, Math.min(rect.width, rect.height) * 0.34);
+    const fadeRadius = Math.max(middleRadius + 60, Math.min(rect.width, rect.height) * 0.48);
+    const positions = state.points.geometry.getAttribute("position");
+    const pointAlpha = state.points.geometry.getAttribute("pointAlpha");
+    const lineAlpha = state.guideLines?.geometry.getAttribute("lineAlpha");
     const worldPosition = new state.three.Vector3();
     const projectedPosition = new state.three.Vector3();
-    const labels = [...state.systemLabels.children]
-      .map((label) => {
-        label.getWorldPosition(worldPosition);
-        projectedPosition.copy(worldPosition).project(state.camera);
+    let changed = false;
 
-        return {
-          depth: state.camera.position.distanceTo(worldPosition),
-          label,
-          projectedX: projectedPosition.x,
-          projectedY: projectedPosition.y,
-          projectedZ: projectedPosition.z,
-          x: (projectedPosition.x * 0.5 + 0.5) * rect.width,
-          y: (-projectedPosition.y * 0.5 + 0.5) * rect.height,
-        };
-      })
-      .filter((entry) => (
-        entry.projectedX >= -1
-        && entry.projectedX <= 1
-        && entry.projectedY >= -1
-        && entry.projectedY <= 1
-        && entry.projectedZ >= -1
-        && entry.projectedZ <= 1
-      ))
-      .sort((left, right) => left.depth - right.depth);
+    if (state.routeViewingMode) {
+      state.systemLabels.children.forEach((label) => {
+        label.visible = state.labelsEnabled;
+        updateSystemLabelScale(label, rect);
+      });
 
-    state.systemLabels.children.forEach((label) => {
-      label.visible = false;
-    });
-
-    labels.forEach((entry) => {
-      const bounds = entry.label.userData.labelBounds || { height: 20, width: 80 };
-      const candidate = {
-        bottom: entry.y + bounds.height / 2,
-        left: entry.x - bounds.width / 2,
-        right: entry.x + bounds.width / 2,
-        top: entry.y - bounds.height / 2,
-      };
-
-      if (visibleBounds.some((existing) => rectanglesOverlap(candidate, existing))) {
-        return;
+      for (let index = 0; index < pointAlpha.count; index += 1) {
+        if (pointAlpha.getX(index) !== 1) {
+          pointAlpha.setX(index, 1);
+          changed = true;
+        }
+        setGuideLineAlpha(lineAlpha, index, 1);
       }
 
-      entry.label.visible = true;
-      visibleBounds.push(candidate);
-    });
+      if (changed) {
+        pointAlpha.needsUpdate = true;
+      }
+      if (lineAlpha) {
+        lineAlpha.needsUpdate = true;
+      }
+      return;
+    }
+
+    for (let index = 0; index < positions.count; index += 1) {
+      worldPosition.fromBufferAttribute(positions, index);
+      state.points.localToWorld(worldPosition);
+      projectedPosition.copy(worldPosition).project(state.camera);
+
+      const screenX = (projectedPosition.x * 0.5 + 0.5) * rect.width;
+      const screenY = (-projectedPosition.y * 0.5 + 0.5) * rect.height;
+      const radius = Math.hypot(screenX - centerX, screenY - centerY);
+      const inFront = projectedPosition.z >= -1 && projectedPosition.z <= 1;
+      const alpha = !inFront
+        ? 0.08
+        : radius <= middleRadius
+          ? 1
+          : radius <= fadeRadius
+            ? 0.52
+            : 0.2;
+      const label = state.systemLabels.children[index];
+
+      if (label) {
+        label.visible = state.labelsEnabled && inFront && radius <= coreRadius;
+        updateSystemLabelScale(label, rect);
+      }
+
+      if (pointAlpha.getX(index) !== alpha) {
+        pointAlpha.setX(index, alpha);
+        changed = true;
+      }
+      setGuideLineAlpha(lineAlpha, index, alpha);
+    }
+
+    if (changed) {
+      pointAlpha.needsUpdate = true;
+    }
+    if (lineAlpha) {
+      lineAlpha.needsUpdate = true;
+    }
   }
 
-  function rectanglesOverlap(left, right) {
-    return left.left < right.right
-      && left.right > right.left
-      && left.top < right.bottom
-      && left.bottom > right.top;
+  function setGuideLineAlpha(attribute, systemIndex, alpha) {
+    if (!attribute) {
+      return;
+    }
+
+    attribute.setX(systemIndex * 2, alpha);
+    attribute.setX(systemIndex * 2 + 1, alpha);
+  }
+
+  function updateSystemLabelScale(label, rect) {
+    if (!state.camera || !state.three) {
+      return;
+    }
+
+    const worldPosition = label.getWorldPosition(new state.three.Vector3());
+    const cameraPosition = worldPosition.applyMatrix4(state.camera.matrixWorldInverse);
+    const depth = Math.max(1, -cameraPosition.z);
+    const worldUnitsPerPixel = 2 * depth
+      * Math.tan(state.three.MathUtils.degToRad(state.camera.fov) / 2)
+      / Math.max(1, rect.height);
+
+    label.scale.set(worldUnitsPerPixel * 80, worldUnitsPerPixel * 18, 1);
   }
 
   function selectSystemAt(event, canvas) {
@@ -2019,8 +2027,8 @@
     return undefined;
   }
 
-  async function searchReferenceSystems(query) {
-    const results = select("[data-route-reference-results]");
+  async function searchMapSystems(query) {
+    const results = select("[data-route-system-results]");
     const token = state.searchToken + 1;
 
     state.searchToken = token;
@@ -2056,15 +2064,15 @@
     }));
   }
 
-  function applyReferenceSearch() {
-    const input = select("[data-route-reference-search]");
+  function centerOnSearchedSystem() {
+    const input = select("[data-route-system-search]");
 
     if (!(input instanceof HTMLInputElement)) {
       return;
     }
 
     if (state.routeViewingMode) {
-      setStatus("Exit route view to change reference.");
+      setStatus("Exit route view to center on another system.");
       return;
     }
 
@@ -2073,13 +2081,18 @@
       ?? state.searchResults[0];
 
     if (!match) {
-      setStatus("Search for a reference system first.");
+      setStatus("Search for a system first.");
       return;
     }
 
     input.value = match.name;
-    setReferenceSystem(match);
-    setStatus("Reference set to " + match.name + ".");
+    state.mapOrigin = {
+      x: Number(match.x) || 0,
+      y: Number(match.y) || 0,
+      z: Number(match.z) || 0,
+    };
+    state.chunkCache.clear();
+    setStatus("Centering on " + match.name + "...");
 
     if (state.enabled) {
       loadSystems().catch((error) => setStatus(error instanceof Error ? error.message : String(error)));
@@ -2155,12 +2168,12 @@
       tab.addEventListener("click", () => activateTab(tab.getAttribute("data-dashboard-tab") || "dashboard"));
     });
 
-    const loadButton = select("[data-route-load]");
     const openSelectedRouteButton = select("[data-route-open-selected]");
     const useSelectedRouteButton = select("[data-route-use-selected]");
     const routeLimitSelect = select("[data-route-limit]");
-    const referenceInput = select("[data-route-reference-search]");
-    const setReferenceButton = select("[data-route-set-reference]");
+    const systemSearchInput = select("[data-route-system-search]");
+    const centerSystemButton = select("[data-route-center-system]");
+    const showLabelsInput = select("[data-route-show-labels]");
     const plannerPickupInput = select("[data-planner-pickup-search]");
     const plannerCommoditySelect = select("[data-planner-commodity]");
     const plannerBuildButton = select("[data-planner-build]");
@@ -2178,16 +2191,10 @@
     const plannerViewDestinationButton = select("[data-planner-view-destination]");
     const plannerViewRouteButton = select("[data-planner-view-route]");
     const routeExitViewButton = select("[data-route-exit-view]");
-    let referenceSearchTimer = 0;
+    let systemSearchTimer = 0;
     let plannerPickupTimer = 0;
 
     enableRoutePlanner().catch((error) => setStatus(error instanceof Error ? error.message : String(error)));
-
-    if (loadButton instanceof HTMLButtonElement) {
-      loadButton.addEventListener("click", () => {
-        loadSystems().catch((error) => setStatus(error instanceof Error ? error.message : String(error)));
-      });
-    }
 
     if (openSelectedRouteButton instanceof HTMLButtonElement) {
       openSelectedRouteButton.addEventListener("click", openSelectedRouteSystem);
@@ -2203,18 +2210,31 @@
       });
     }
 
-    if (referenceInput instanceof HTMLInputElement) {
-      referenceInput.addEventListener("input", () => {
-        window.clearTimeout(referenceSearchTimer);
-        referenceSearchTimer = window.setTimeout(() => {
-          searchReferenceSystems(referenceInput.value).catch((error) => setStatus(error instanceof Error ? error.message : String(error)));
+    if (systemSearchInput instanceof HTMLInputElement) {
+      systemSearchInput.addEventListener("input", () => {
+        window.clearTimeout(systemSearchTimer);
+        systemSearchTimer = window.setTimeout(() => {
+          searchMapSystems(systemSearchInput.value).catch((error) => setStatus(error instanceof Error ? error.message : String(error)));
         }, 180);
       });
-      referenceInput.addEventListener("change", applyReferenceSearch);
+      systemSearchInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          centerOnSearchedSystem();
+        }
+      });
     }
 
-    if (setReferenceButton instanceof HTMLButtonElement) {
-      setReferenceButton.addEventListener("click", applyReferenceSearch);
+    if (centerSystemButton instanceof HTMLButtonElement) {
+      centerSystemButton.addEventListener("click", centerOnSearchedSystem);
+    }
+
+    if (showLabelsInput instanceof HTMLInputElement) {
+      state.labelsEnabled = showLabelsInput.checked;
+      showLabelsInput.addEventListener("change", () => {
+        state.labelsEnabled = showLabelsInput.checked;
+        updateSystemLabelVisibility();
+      });
     }
 
     if (plannerPickupInput instanceof HTMLInputElement) {
