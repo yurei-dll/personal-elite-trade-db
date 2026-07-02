@@ -1783,42 +1783,57 @@
 
   function createEdgeIndicators(three) {
     const indicators = new three.Group();
+    const arrowShape = new three.Shape();
+    arrowShape.moveTo(-4, -7);
+    arrowShape.lineTo(4, -7);
+    arrowShape.lineTo(4, 1);
+    arrowShape.lineTo(8, 1);
+    arrowShape.lineTo(0, 9);
+    arrowShape.lineTo(-8, 1);
+    arrowShape.lineTo(-4, 1);
+    arrowShape.closePath();
+    const geometry = new three.ShapeGeometry(arrowShape);
+    geometry.rotateX(-Math.PI / 2);
     const definitions = [
-      { axis: "x", direction: -1, glyph: "←", x: -GRID_HALF_SIZE - 16, z: 0 },
-      { axis: "x", direction: 1, glyph: "→", x: GRID_HALF_SIZE + 16, z: 0 },
-      { axis: "z", direction: -1, glyph: "↑", x: 0, z: -GRID_HALF_SIZE - 16 },
-      { axis: "z", direction: 1, glyph: "↓", x: 0, z: GRID_HALF_SIZE + 16 },
+      { axis: "x", direction: -1, rotation: Math.PI / 2, x: -GRID_HALF_SIZE - 16, z: 0 },
+      { axis: "x", direction: 1, rotation: -Math.PI / 2, x: GRID_HALF_SIZE + 16, z: 0 },
+      { axis: "z", direction: -1, rotation: 0, x: 0, z: -GRID_HALF_SIZE - 16 },
+      { axis: "z", direction: 1, rotation: Math.PI, x: 0, z: GRID_HALF_SIZE + 16 },
     ];
 
     definitions.forEach((definition) => {
-      const canvas = document.createElement("canvas");
-      const context = canvas.getContext("2d");
-
-      canvas.width = 96;
-      canvas.height = 96;
-      if (context) {
-        context.font = "700 72px system-ui, sans-serif";
-        context.textAlign = "center";
-        context.textBaseline = "middle";
-        context.shadowBlur = 18;
-        context.shadowColor = "#2f9dff";
-        context.fillStyle = "#82d8ff";
-        context.fillText(definition.glyph, 48, 44);
-      }
-
-      const material = new three.SpriteMaterial({
-        depthTest: false,
-        map: new three.CanvasTexture(canvas),
-        opacity: 0.28,
+      const indicator = new three.Group();
+      const glowMaterial = new three.MeshBasicMaterial({
+        blending: three.AdditiveBlending,
+        color: 0x2f9dff,
+        depthWrite: false,
+        opacity: 0.1,
+        side: three.DoubleSide,
         transparent: true,
       });
-      const sprite = new three.Sprite(material);
+      const coreMaterial = new three.MeshBasicMaterial({
+        color: 0x82d8ff,
+        depthWrite: false,
+        opacity: 0.35,
+        side: three.DoubleSide,
+        transparent: true,
+      });
+      const glow = new three.Mesh(geometry, glowMaterial);
+      const core = new three.Mesh(geometry, coreMaterial);
 
-      sprite.position.set(definition.x, 3, definition.z);
-      sprite.scale.set(13, 13, 1);
-      sprite.renderOrder = 4;
-      sprite.userData.edge = definition;
-      indicators.add(sprite);
+      glow.scale.set(1.45, 1.45, 1.45);
+      glow.position.y = -0.08;
+      glow.renderOrder = 3;
+      core.renderOrder = 4;
+      indicator.add(glow);
+      indicator.add(core);
+      indicator.position.set(definition.x, 0.35, definition.z);
+      indicator.rotation.y = definition.rotation;
+      indicator.renderOrder = 4;
+      indicator.userData.edge = definition;
+      indicator.userData.coreMaterial = coreMaterial;
+      indicator.userData.glowMaterial = glowMaterial;
+      indicators.add(indicator);
     });
 
     return indicators;
@@ -1837,16 +1852,17 @@
     }
 
     state.edgeIndicators.visible = !state.routeViewingMode;
-    state.edgeIndicators.children.forEach((sprite) => {
-      const edge = sprite.userData.edge;
+    state.edgeIndicators.children.forEach((indicator) => {
+      const edge = indicator.userData.edge;
       const signedPosition = target[edge.axis] * edge.direction;
       const progress = Math.max(0, Math.min(1,
         (signedPosition - EDGE_GLOW_START) / (EDGE_SWAP_THRESHOLD - EDGE_GLOW_START),
       ));
 
-      sprite.material.opacity = 0.28 + progress * 0.72;
-      const size = 13 + progress * 4;
-      sprite.scale.set(size, size, 1);
+      indicator.userData.coreMaterial.opacity = 0.35 + progress * 0.65;
+      indicator.userData.glowMaterial.opacity = 0.1 + progress * 0.5;
+      const scale = 1 + progress * 0.22;
+      indicator.scale.set(scale, scale, scale);
     });
 
     if (!state.routeViewingMode && state.edgeNavigationArmed && !state.chunkLoading) {
