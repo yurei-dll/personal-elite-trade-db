@@ -6,7 +6,7 @@ import { createGunzip } from "node:zlib";
 import type { DatabaseManager } from "./manager";
 
 const DEFAULT_IMPORT_WORKSPACE = "import";
-const DEFAULT_SYSTEMS_IMPORT_FILE = "systemsWithCoordinates7days.json.gz";
+const DEFAULT_SYSTEMS_IMPORT_FILE = "systemsPopulated.json.gz";
 const DEFAULT_STATIONS_IMPORT_FILE = "stations.json.gz";
 const DEFAULT_BATCH_SIZE = 50;
 const DEFAULT_STATIONS_BATCH_SIZE = 1_000;
