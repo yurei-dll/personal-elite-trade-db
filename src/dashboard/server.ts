@@ -33,6 +33,7 @@ import {
   routePlannerCommoditiesQuery,
   routePlannerReturnHaulQuery,
   routePlannerSystemsQuery,
+  routePlannerSystemsChunkQuery,
   routePlannerTradeRouteQuery,
   routePlannerWaypointsQuery,
   stationByIdQuery,
@@ -423,12 +424,16 @@ export async function startDashboardServer(
       z: readQueryNumber(context.req.query("z"), 0),
     };
     const limit = readRoutePlannerLimit(context.req.query("limit"));
+    const chunkSize = readQueryNumber(context.req.query("chunkSize"), 0);
     const result = await options.database.query<RoutePlannerSystemRow>(
-      routePlannerSystemsQuery,
-      [origin.x, origin.y, origin.z, limit],
+      chunkSize > 0 ? routePlannerSystemsChunkQuery : routePlannerSystemsQuery,
+      chunkSize > 0
+        ? [origin.x, origin.y, origin.z, limit, Math.min(500, Math.max(20, chunkSize))]
+        : [origin.x, origin.y, origin.z, limit],
     );
 
     return context.json({
+      chunkSize: chunkSize > 0 ? Math.min(500, Math.max(20, chunkSize)) : undefined,
       limit,
       origin,
       systems: result.rows.map((row) => ({

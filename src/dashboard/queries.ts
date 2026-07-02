@@ -41,6 +41,39 @@ export const routePlannerSystemsQuery = `
   LIMIT $4
 `;
 
+export const routePlannerSystemsChunkQuery = `
+  SELECT
+    systems.id::text,
+    systems.name,
+    systems.x,
+    systems.y,
+    systems.z,
+    count(stations.id) FILTER (WHERE stations.has_market = true) AS market_count,
+    count(stations.id) FILTER (
+      WHERE stations.has_market = true
+        AND regexp_replace(lower(coalesce(stations.type, '')), '[^a-z0-9]', '', 'g') = 'fleetcarrier'
+    ) AS carrier_count,
+    count(stations.id) FILTER (
+      WHERE stations.has_market = true
+        AND ${buildPlanetaryPortExpression("stations")}
+    ) AS planetary_market_count,
+    sqrt(
+      power(systems.x - $1::double precision, 2) +
+      power(systems.y - $2::double precision, 2) +
+      power(systems.z - $3::double precision, 2)
+    ) AS distance
+  FROM systems
+  LEFT JOIN stations
+    ON stations.system_id = systems.id
+  WHERE systems.x >= $1::double precision - ($5::double precision / 2)
+    AND systems.x < $1::double precision + ($5::double precision / 2)
+    AND systems.z >= $3::double precision - ($5::double precision / 2)
+    AND systems.z < $3::double precision + ($5::double precision / 2)
+  GROUP BY systems.id, systems.name, systems.x, systems.y, systems.z
+  ORDER BY distance ASC
+  LIMIT $4
+`;
+
 export const systemSearchQuery = `
   SELECT
     id::text,

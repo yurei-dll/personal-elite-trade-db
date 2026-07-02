@@ -178,6 +178,7 @@ const EXPECTED_TABLES: readonly ExpectedTable[] = [
 ];
 
 const EXPECTED_INDEXES = [
+  "systems_x_z_idx",
   "station_commodities_commodity_id_idx",
   "station_commodities_collected_at_idx",
 ] as const;
@@ -672,6 +673,11 @@ async function initializeDatabaseSetup(client: PoolClient): Promise<void> {
       source text NOT NULL,
       PRIMARY KEY (station_id, commodity_id)
     )
+  `);
+
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS systems_x_z_idx
+    ON systems (x, z)
   `);
 
   await client.query(`

@@ -1,27 +1,40 @@
 (() => {
+  const CHUNK_SIZE_LY = 100;
+  const GRID_HALF_SIZE = 130;
+  const WORLD_SCALE = (GRID_HALF_SIZE * 2) / CHUNK_SIZE_LY;
+  const EDGE_GLOW_START = GRID_HALF_SIZE * 0.62;
+  const EDGE_SWAP_THRESHOLD = GRID_HALF_SIZE * 0.98;
   const state = {
     animationFrame: 0,
     camera: undefined,
     cameraOrbit: {
       pitch: 0,
       radius: 220,
+      target: { x: 0, y: 0, z: 0 },
       yaw: 0,
     },
+    chunkCache: new Map(),
+    chunkLoading: false,
+    chunkOrigin: { x: 0, y: 0, z: 0 },
+    edgeIndicators: undefined,
+    edgeNavigationArmed: true,
     enabled: false,
     enabling: false,
     group: undefined,
     gridLabels: undefined,
     guideLines: undefined,
     hoveredSystem: undefined,
+    dragDistance: 0,
     isDragging: false,
+    isPanning: false,
     lastPointer: { x: 0, y: 0 },
     points: undefined,
     raycaster: undefined,
+    referenceOrigin: { x: 0, y: 0, z: 0 },
     referenceSystem: undefined,
     renderer: undefined,
     resizeObserver: undefined,
     routeLine: undefined,
-    routePreviousReference: undefined,
     routeToView: undefined,
     routeViewingMode: false,
     scene: undefined,
@@ -831,12 +844,6 @@
   }
 
   function setRouteViewingMode(isViewing, route) {
-    const wasViewingRoute = state.routeViewingMode;
-
-    if (isViewing && !wasViewingRoute) {
-      state.routePreviousReference = readRouteReferenceSnapshot();
-    }
-
     state.routeViewingMode = isViewing;
     state.routeToView = isViewing ? route : undefined;
 
@@ -865,51 +872,8 @@
       return;
     }
 
-    restoreRouteReferenceSnapshot();
     setStatus(state.enabled ? "Route view closed." : "3D map is not loaded.");
     loadSystems().catch((error) => setStatus(error instanceof Error ? error.message : String(error)));
-  }
-
-  function readRouteReferenceSnapshot() {
-    const reference = select("[data-route-reference]");
-
-    return {
-      label: reference?.textContent || "Reference: galactic origin",
-      x: readNumberInput("[data-route-origin-x]", 0),
-      y: readNumberInput("[data-route-origin-y]", 0),
-      z: readNumberInput("[data-route-origin-z]", 0),
-    };
-  }
-
-  function restoreRouteReferenceSnapshot() {
-    const snapshot = state.routePreviousReference;
-
-    if (!snapshot) {
-      return;
-    }
-
-    const reference = select("[data-route-reference]");
-    const xInput = select("[data-route-origin-x]");
-    const yInput = select("[data-route-origin-y]");
-    const zInput = select("[data-route-origin-z]");
-
-    if (reference) {
-      reference.textContent = snapshot.label;
-    }
-
-    if (xInput instanceof HTMLInputElement) {
-      xInput.value = String(snapshot.x);
-    }
-
-    if (yInput instanceof HTMLInputElement) {
-      yInput.value = String(snapshot.y);
-    }
-
-    if (zInput instanceof HTMLInputElement) {
-      zInput.value = String(snapshot.z);
-    }
-
-    state.routePreviousReference = undefined;
   }
 
   function updateRouteReferenceControls() {
@@ -917,6 +881,8 @@
     const referenceInput = select("[data-route-reference-search]");
     const setReferenceButton = select("[data-route-set-reference]");
     const loadButton = select("[data-route-load]");
+
+    renderReferenceControls();
 
     if (routeLimitSelect instanceof HTMLSelectElement) {
       routeLimitSelect.disabled = state.routeViewingMode;
@@ -951,13 +917,6 @@
     input.remove();
   }
 
-  function readNumberInput(selector, fallback) {
-    const input = select(selector);
-    const value = input instanceof HTMLInputElement ? Number.parseFloat(input.value) : Number.NaN;
-
-    return Number.isFinite(value) ? value : fallback;
-  }
-
   function readLimit() {
     const selectElement = select("[data-route-limit]");
     const value = selectElement instanceof HTMLSelectElement ? Number.parseInt(selectElement.value, 10) : 100;
@@ -975,22 +934,37 @@
 
   function setReferenceSystem(system) {
     state.referenceSystem = system;
+    state.referenceOrigin = {
+      x: Number(system?.x) || 0,
+      y: Number(system?.y) || 0,
+      z: Number(system?.z) || 0,
+    };
+    state.chunkCache.clear();
+    renderReferenceControls();
+  }
 
+  function renderReferenceControls() {
+    const system = state.referenceSystem;
     const reference = select("[data-route-reference]");
+    const referenceInput = select("[data-route-reference-search]");
     const xInput = select("[data-route-origin-x]");
     const yInput = select("[data-route-origin-y]");
     const zInput = select("[data-route-origin-z]");
 
     if (xInput instanceof HTMLInputElement) {
-      xInput.value = String(system?.x ?? 0);
+      xInput.value = String(state.referenceOrigin.x);
     }
 
     if (yInput instanceof HTMLInputElement) {
-      yInput.value = String(system?.y ?? 0);
+      yInput.value = String(state.referenceOrigin.y);
     }
 
     if (zInput instanceof HTMLInputElement) {
-      zInput.value = String(system?.z ?? 0);
+      zInput.value = String(state.referenceOrigin.z);
+    }
+
+    if (referenceInput instanceof HTMLInputElement) {
+      referenceInput.value = system?.name || "";
     }
 
     if (reference) {
@@ -1232,7 +1206,6 @@
     raycaster.params.Points.threshold = 4;
     scene.background = new three.Color(0x090c12);
     scene.add(group);
-    group.add(new three.AxesHelper(100));
     group.add(new three.GridHelper(260, 16, 0x2f4058, 0x202b40));
 
     state.camera = camera;
@@ -1240,10 +1213,14 @@
     state.raycaster = raycaster;
     state.renderer = renderer;
     state.scene = scene;
+    state.edgeIndicators = createEdgeIndicators(three);
+    group.add(state.edgeIndicators);
     updateOrbitCamera();
 
     canvas.addEventListener("pointerdown", (event) => {
       state.isDragging = true;
+      state.isPanning = event.shiftKey;
+      state.dragDistance = 0;
       state.lastPointer = { x: event.clientX, y: event.clientY };
       canvas.setPointerCapture(event.pointerId);
     });
@@ -1260,16 +1237,24 @@
       const deltaX = event.clientX - state.lastPointer.x;
       const deltaY = event.clientY - state.lastPointer.y;
       state.lastPointer = { x: event.clientX, y: event.clientY };
-      state.cameraOrbit.yaw -= deltaX * 0.007;
-      state.cameraOrbit.pitch = Math.max(
-        -Math.PI * 0.45,
-        Math.min(Math.PI * 0.45, state.cameraOrbit.pitch + deltaY * 0.007),
-      );
-      updateOrbitCamera();
+      state.dragDistance += Math.abs(deltaX) + Math.abs(deltaY);
+
+      if (state.isPanning || event.shiftKey) {
+        state.isPanning = true;
+        panCameraBy(deltaX, deltaY, canvas);
+      } else {
+        state.cameraOrbit.yaw -= deltaX * 0.007;
+        state.cameraOrbit.pitch = Math.max(
+          -Math.PI * 0.45,
+          Math.min(Math.PI * 0.45, state.cameraOrbit.pitch + deltaY * 0.007),
+        );
+        updateOrbitCamera();
+      }
       updateHoverAt(event, canvas);
     });
     canvas.addEventListener("pointerup", (event) => {
       state.isDragging = false;
+      state.isPanning = false;
       canvas.releasePointerCapture(event.pointerId);
     });
     canvas.addEventListener("wheel", (event) => {
@@ -1283,7 +1268,18 @@
       updateOrbitCamera();
     }, { passive: false });
     canvas.addEventListener("pointerleave", () => setHoverSystem(undefined));
-    canvas.addEventListener("click", (event) => selectSystemAt(event, canvas));
+    canvas.addEventListener("click", (event) => {
+      if (state.dragDistance > 4) {
+        return;
+      }
+
+      if (event.shiftKey) {
+        panCameraAt(event, canvas);
+        return;
+      }
+
+      selectSystemAt(event, canvas);
+    });
     window.addEventListener("resize", resizeRoutePlanner);
 
     if (typeof ResizeObserver === "function") {
@@ -1302,15 +1298,69 @@
 
     const radius = state.cameraOrbit.radius;
     const pitch = state.cameraOrbit.pitch;
+    const target = state.cameraOrbit.target;
     const yaw = state.cameraOrbit.yaw;
     const horizontalRadius = Math.cos(pitch) * radius;
 
     state.camera.position.set(
-      Math.sin(yaw) * horizontalRadius,
-      Math.sin(pitch) * radius,
-      Math.cos(yaw) * horizontalRadius,
+      target.x + Math.sin(yaw) * horizontalRadius,
+      target.y + Math.sin(pitch) * radius,
+      target.z + Math.cos(yaw) * horizontalRadius,
     );
-    state.camera.lookAt(0, 0, 0);
+    state.camera.lookAt(target.x, target.y, target.z);
+  }
+
+  function panCameraAt(event, canvas) {
+    if (!state.camera || !state.raycaster || !state.three) {
+      return;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    const pointer = new state.three.Vector2(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    const target = state.cameraOrbit.target;
+    const targetPoint = new state.three.Vector3(target.x, target.y, target.z);
+    const viewDirection = state.camera.getWorldDirection(new state.three.Vector3());
+    const panPlane = new state.three.Plane().setFromNormalAndCoplanarPoint(viewDirection, targetPoint);
+    const intersection = new state.three.Vector3();
+
+    state.raycaster.setFromCamera(pointer, state.camera);
+    if (!state.raycaster.ray.intersectPlane(panPlane, intersection)) {
+      return;
+    }
+
+    state.cameraOrbit.target = {
+      x: intersection.x,
+      y: intersection.y,
+      z: intersection.z,
+    };
+    updateOrbitCamera();
+    setHoverSystem(undefined);
+  }
+
+  function panCameraBy(deltaX, deltaY, canvas) {
+    if (!state.camera || !state.three) {
+      return;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    const worldUnitsPerPixel = 2 * state.cameraOrbit.radius
+      * Math.tan(state.three.MathUtils.degToRad(state.camera.fov) / 2)
+      / Math.max(1, rect.height);
+    const right = new state.three.Vector3().setFromMatrixColumn(state.camera.matrixWorld, 0);
+    const up = new state.three.Vector3().setFromMatrixColumn(state.camera.matrixWorld, 1);
+    const movement = right.multiplyScalar(-deltaX * worldUnitsPerPixel)
+      .add(up.multiplyScalar(deltaY * worldUnitsPerPixel));
+    const target = state.cameraOrbit.target;
+
+    state.cameraOrbit.target = {
+      x: target.x + movement.x,
+      y: target.y + movement.y,
+      z: target.z + movement.z,
+    };
+    updateOrbitCamera();
   }
 
   async function loadSystems() {
@@ -1323,38 +1373,56 @@
       return;
     }
 
-    const origin = {
-      x: readNumberInput("[data-route-origin-x]", 0),
-      y: readNumberInput("[data-route-origin-y]", 0),
-      z: readNumberInput("[data-route-origin-z]", 0),
-    };
+    const origin = { ...state.referenceOrigin };
     const limit = readLimit();
-    const params = new URLSearchParams({
-      limit: String(limit),
-      x: String(origin.x),
-      y: String(origin.y),
-      z: String(origin.z),
-    });
-
     setStatus("Loading nearest systems...");
-    const response = await window.fetch("/dashboard/data/route-planner/systems?" + params.toString(), {
-      headers: {
-        Accept: "application/json",
-      },
-    });
+    state.chunkCache.clear();
+    const systems = await fetchSystemChunk(origin, limit);
 
-    if (!response.ok) {
+    if (!systems) {
       setStatus("Could not load systems.");
       return;
     }
 
-    const result = await response.json();
-    state.systems = Array.isArray(result.systems) ? result.systems : [];
+    state.chunkOrigin = origin;
+    state.systems = systems;
     if (state.selectedSystem && !state.systems.some((system) => system.id === state.selectedSystem?.id)) {
       setSelectedRouteSystem(undefined);
     }
     renderSystems(origin);
     setStatus("Showing " + formatNumber(state.systems.length) + " nearest systems.");
+  }
+
+  async function fetchSystemChunk(origin, limit) {
+    const key = chunkKey(origin);
+
+    if (state.chunkCache.has(key)) {
+      return state.chunkCache.get(key);
+    }
+
+    const params = new URLSearchParams({
+      chunkSize: String(CHUNK_SIZE_LY),
+      limit: String(limit),
+      x: String(origin.x),
+      y: String(origin.y),
+      z: String(origin.z),
+    });
+    const response = await window.fetch("/dashboard/data/route-planner/systems?" + params.toString(), {
+      headers: { Accept: "application/json" },
+    });
+
+    if (!response.ok) {
+      return undefined;
+    }
+
+    const result = await response.json();
+    const systems = Array.isArray(result.systems) ? result.systems : [];
+    state.chunkCache.set(key, systems);
+    return systems;
+  }
+
+  function chunkKey(origin) {
+    return [origin.x, origin.y, origin.z, readLimit()].join(":");
   }
 
   function renderViewedRoute(route) {
@@ -1370,27 +1438,6 @@
     }
 
     const origin = calculateRouteCenter(routeSystems);
-    const reference = select("[data-route-reference]");
-    const xInput = select("[data-route-origin-x]");
-    const yInput = select("[data-route-origin-y]");
-    const zInput = select("[data-route-origin-z]");
-
-    if (xInput instanceof HTMLInputElement) {
-      xInput.value = String(origin.x);
-    }
-
-    if (yInput instanceof HTMLInputElement) {
-      yInput.value = String(origin.y);
-    }
-
-    if (zInput instanceof HTMLInputElement) {
-      zInput.value = String(origin.z);
-    }
-
-    if (reference) {
-      reference.textContent = "Reference: route center (" + [origin.x, origin.y, origin.z].map(formatNumber).join(", ") + ")";
-    }
-
     state.systems = routeSystems.map((system) => ({
       ...system,
       distance: calculateRouteDistance(origin, system),
@@ -1455,9 +1502,14 @@
     };
   }
 
-  function renderSystems(origin) {
+  function renderSystems(origin, options) {
     if (!state.three || !state.group) {
       return;
+    }
+
+    if (!options?.preserveCamera) {
+      state.cameraOrbit.target = { x: 0, y: 0, z: 0 };
+      updateOrbitCamera();
     }
 
     if (state.points) {
@@ -1491,8 +1543,8 @@
 
     const three = state.three;
     const maxDistance = Math.max(1, ...state.systems.map((system) => Number(system.distance) || 0));
-    const scale = Math.min(8, 140 / maxDistance);
-    renderGridLabels(scale);
+    const scale = state.routeViewingMode ? Math.min(8, 140 / maxDistance) : WORLD_SCALE;
+    renderGridLabels(scale, origin);
     const positions = new Float32Array(state.systems.length * 3);
     const colors = new Float32Array(state.systems.length * 3);
     const guideLinePositions = new Float32Array(state.systems.length * 6);
@@ -1670,14 +1722,14 @@
     });
   }
 
-  function renderGridLabels(scale) {
+  function renderGridLabels(scale, origin) {
     if (!state.three || !state.group) {
       return;
     }
 
     const three = state.three;
     const labels = new three.Group();
-    const gridHalfSize = 130;
+    const gridHalfSize = GRID_HALF_SIZE;
     const gridDivisions = 8;
     const gridStep = gridHalfSize / gridDivisions;
 
@@ -1687,10 +1739,11 @@
       }
 
       const displayPosition = index * gridStep;
-      const lightYears = displayPosition / scale;
+      const xCoordinate = origin.x + displayPosition / scale;
+      const zCoordinate = origin.z + displayPosition / scale;
 
-      labels.add(createGridLabelSprite(three, formatMeasurementLabel("X", lightYears), displayPosition, 0, -gridHalfSize - 10));
-      labels.add(createGridLabelSprite(three, formatMeasurementLabel("Z", lightYears), -gridHalfSize - 10, 0, displayPosition));
+      labels.add(createGridLabelSprite(three, formatMeasurementLabel("X", xCoordinate), displayPosition, 0, -gridHalfSize - 10));
+      labels.add(createGridLabelSprite(three, formatMeasurementLabel("Z", zCoordinate), -gridHalfSize - 10, 0, displayPosition));
     }
 
     state.gridLabels = labels;
@@ -1728,11 +1781,127 @@
     return sprite;
   }
 
+  function createEdgeIndicators(three) {
+    const indicators = new three.Group();
+    const definitions = [
+      { axis: "x", direction: -1, glyph: "←", x: -GRID_HALF_SIZE - 16, z: 0 },
+      { axis: "x", direction: 1, glyph: "→", x: GRID_HALF_SIZE + 16, z: 0 },
+      { axis: "z", direction: -1, glyph: "↑", x: 0, z: -GRID_HALF_SIZE - 16 },
+      { axis: "z", direction: 1, glyph: "↓", x: 0, z: GRID_HALF_SIZE + 16 },
+    ];
+
+    definitions.forEach((definition) => {
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d");
+
+      canvas.width = 96;
+      canvas.height = 96;
+      if (context) {
+        context.font = "700 72px system-ui, sans-serif";
+        context.textAlign = "center";
+        context.textBaseline = "middle";
+        context.shadowBlur = 18;
+        context.shadowColor = "#2f9dff";
+        context.fillStyle = "#82d8ff";
+        context.fillText(definition.glyph, 48, 44);
+      }
+
+      const material = new three.SpriteMaterial({
+        depthTest: false,
+        map: new three.CanvasTexture(canvas),
+        opacity: 0.28,
+        transparent: true,
+      });
+      const sprite = new three.Sprite(material);
+
+      sprite.position.set(definition.x, 3, definition.z);
+      sprite.scale.set(13, 13, 1);
+      sprite.renderOrder = 4;
+      sprite.userData.edge = definition;
+      indicators.add(sprite);
+    });
+
+    return indicators;
+  }
+
+  function updateEdgeIndicators() {
+    if (!state.edgeIndicators) {
+      return;
+    }
+
+    const target = state.cameraOrbit.target;
+    const centered = Math.abs(target.x) < EDGE_GLOW_START && Math.abs(target.z) < EDGE_GLOW_START;
+
+    if (centered) {
+      state.edgeNavigationArmed = true;
+    }
+
+    state.edgeIndicators.visible = !state.routeViewingMode;
+    state.edgeIndicators.children.forEach((sprite) => {
+      const edge = sprite.userData.edge;
+      const signedPosition = target[edge.axis] * edge.direction;
+      const progress = Math.max(0, Math.min(1,
+        (signedPosition - EDGE_GLOW_START) / (EDGE_SWAP_THRESHOLD - EDGE_GLOW_START),
+      ));
+
+      sprite.material.opacity = 0.28 + progress * 0.72;
+      const size = 13 + progress * 4;
+      sprite.scale.set(size, size, 1);
+    });
+
+    if (!state.routeViewingMode && state.edgeNavigationArmed && !state.chunkLoading) {
+      const direction = readChunkDirection(target);
+
+      if (direction) {
+        loadAdjacentChunk(direction).catch((error) => setStatus(error instanceof Error ? error.message : String(error)));
+      }
+    }
+  }
+
+  function readChunkDirection(target) {
+    if (target.x <= -EDGE_SWAP_THRESHOLD) return { x: -1, z: 0 };
+    if (target.x >= EDGE_SWAP_THRESHOLD) return { x: 1, z: 0 };
+    if (target.z <= -EDGE_SWAP_THRESHOLD) return { x: 0, z: -1 };
+    if (target.z >= EDGE_SWAP_THRESHOLD) return { x: 0, z: 1 };
+    return undefined;
+  }
+
+  async function loadAdjacentChunk(direction) {
+    state.chunkLoading = true;
+    state.edgeNavigationArmed = false;
+    const nextOrigin = {
+      x: state.chunkOrigin.x + direction.x * CHUNK_SIZE_LY,
+      y: state.chunkOrigin.y,
+      z: state.chunkOrigin.z + direction.z * CHUNK_SIZE_LY,
+    };
+
+    try {
+      setStatus("Loading adjacent map chunk...");
+      const systems = await fetchSystemChunk(nextOrigin, readLimit());
+
+      if (!systems) {
+        state.edgeNavigationArmed = true;
+        setStatus("Could not load adjacent map chunk.");
+        return;
+      }
+
+      state.chunkOrigin = nextOrigin;
+      state.systems = systems;
+      state.cameraOrbit.target = {
+        x: state.cameraOrbit.target.x - direction.x * GRID_HALF_SIZE * 2,
+        y: state.cameraOrbit.target.y,
+        z: state.cameraOrbit.target.z - direction.z * GRID_HALF_SIZE * 2,
+      };
+      renderSystems(nextOrigin, { preserveCamera: true });
+      setStatus("Showing " + formatNumber(systems.length) + " systems in this map chunk.");
+    } finally {
+      state.chunkLoading = false;
+    }
+  }
+
   function formatMeasurementLabel(axis, value) {
     const rounded = Math.round(value);
-    const sign = rounded > 0 ? "+" : "";
-
-    return axis + " " + sign + formatNumber(rounded) + " ly";
+    return axis + " " + formatNumber(rounded) + " ly";
   }
 
   function updateSystemLabelVisibility() {
@@ -1921,6 +2090,7 @@
     state.animationFrame = window.requestAnimationFrame(animateRoutePlanner);
 
     if (state.renderer && state.scene && state.camera) {
+      updateEdgeIndicators();
       updateSystemLabelVisibility();
       state.renderer.render(state.scene, state.camera);
     }
